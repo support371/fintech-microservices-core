@@ -96,3 +96,14 @@ Use Locust to load test the `converter_service`'s internal transfer endpoint.
 ```bash
 locust -f validation/locustfile.py --host https://[CONVERTER-STAGING-URL]
 ```
+
+
+## 5. Vercel Deployment Notes
+
+If deploying this repository to Vercel, use the repository root as the project root.
+
+- The root `vercel.json` contains rewrites that route requests to the correct FastAPI service.
+- Visiting `/` returns a JSON status payload instead of a 404 page.
+- API endpoints remain available at `/api/v1/*`, `/webhook/*`, and `/internal/*`.
+
+After updating configuration, trigger a fresh deployment so Vercel rebuilds with the new routing rules.
