@@ -12,7 +12,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Configuration from .env
-WEBHOOK_SECRET = os.environ.get("STRIGA_WEBHOOK_SECRET").encode('utf-8')
+WEBHOOK_SECRET_RAW = os.environ.get("STRIGA_WEBHOOK_SECRET", "")
+WEBHOOK_SECRET = WEBHOOK_SECRET_RAW.encode('utf-8') if WEBHOOK_SECRET_RAW else b""
 API_KEY = os.environ.get("STRIGA_API_KEY")
 API_BASE_URL = os.environ.get("STRIGA_API_BASE_URL")
 
@@ -35,10 +36,22 @@ class ConversionLogic:
     # This implementation assumes the header is just the signature for simplicity.
     # AGENT MUST ADJUST based on Striga's exact specification.
 
+    if not WEBHOOK_SECRET:
+      return False
+
+    signature_value = signature_header
+    if "," in signature_header:
+      parts = dict(
+        item.split("=", 1)
+        for item in signature_header.split(",")
+        if "=" in item
+      )
+      signature_value = parts.get("v1", "")
+
     computed_signature = hmac.new(WEBHOOK_SECRET, payload_raw, hashlib.sha256).hexdigest()
 
     # hmac.compare_digest prevents timing attacks
-    return hmac.compare_digest(computed_signature, signature_header)
+    return hmac.compare_digest(computed_signature, signature_value)
 
   def is_already_processed(self, transaction_id: str) -> bool:
     """[IDEMPOTENCY] Prevents double-processing of the same webhook."""
@@ -59,15 +72,28 @@ class ConversionLogic:
 
     print(f"Executing conversion for User {user_id}: {fiat_currency} {fiat_amount}")
 
+    if fiat_amount <= 0:
+      raise ValueError("Transaction amount must be greater than zero.")
+
+    normalized_currency = fiat_currency.upper()
+    supported_currencies = {"USD": 70000.0, "EUR": 76000.0, "GBP": 82000.0}
+    if normalized_currency not in supported_currencies:
+      raise ValueError(f"Unsupported fiat currency: {fiat_currency}")
+
     # --- MOCKING API CALL for safe testing ---
     # AGENT ACTION: Replace this block with actual requests.post(...) call.
     time.sleep(1) # Simulate network latency
     if fiat_amount > 10000:
       raise ValueError("Transaction amount exceeds mock limit.")
 
+    exchange_rate = supported_currencies[normalized_currency]
+    btc_amount = round(fiat_amount / exchange_rate, 8)
+
     return {
-      "btc_amount_sent": round(fiat_amount / 70000.0, 8), # Mock rate 70000 USD/BTC
-      "exchange_rate_used": 70000.0,
+      "btc_amount_sent": btc_amount,
+      "satoshis_sent": int(btc_amount * 100_000_000),
+      "exchange_rate_used": exchange_rate,
+      "fiat_currency": normalized_currency,
       "success_time": datetime.now().isoformat()
     }
     # --- END MOCKING ---
