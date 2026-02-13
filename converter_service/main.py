@@ -57,11 +57,15 @@ async def fiat_received_webhook(
   """
   Receives webhook notification for fiat payment receipt, validates it, and executes conversion.
   """
+  content_type = request.headers.get("content-type", "")
+  if "application/json" not in content_type.lower():
+    raise HTTPException(status_code=415, detail="Unsupported media type. Binary files are not supported")
+
   payload_raw = await request.body()
   try:
-    payload = json.loads(payload_raw.decode('utf-8'))
-  except json.JSONDecodeError:
-    raise HTTPException(status_code=400, detail="Invalid JSON payload")
+    payload = json.loads(payload_raw)
+  except (UnicodeDecodeError, json.JSONDecodeError):
+    raise HTTPException(status_code=400, detail="Invalid JSON payload. Binary files are not supported")
 
   # 1. Signature Validation [CRITICAL SECURITY]
   if not converter_logic.validate_webhook_signature(payload_raw, x_signature):
