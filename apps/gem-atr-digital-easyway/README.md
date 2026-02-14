@@ -30,6 +30,7 @@ npm run build
 - Build Command: `npm run build`
 - Install Command: `npm install`
 - Output Directory: auto
+- Node.js Version: 20.x recommended
 
 ### 2) Environment variables (set before first deploy)
 
