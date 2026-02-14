@@ -4,7 +4,7 @@ Production-oriented Next.js 14 App Router app for a fintech dashboard MVP.
 
 ## Release
 
-Current app version: `0.2.0`.
+Current app version: `0.2.1`.
 
 ## Local development
 
