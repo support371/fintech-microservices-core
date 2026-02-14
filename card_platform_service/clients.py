@@ -27,14 +27,18 @@ class CardPlatformLogic:
   """Handles client-facing features: KYC, Card Issuance, and fund transfer."""
 
   def __init__(self):
-    self.db_conn = psycopg2.connect(
-        host=DB_HOST,
-        port=DB_PORT,
-        dbname=DB_NAME,
-        user=DB_USER,
-        password=DB_PASSWORD
-    )
-    logger.info("CardPlatformLogic initialized. Database connection established.")
+    self.db_conn = None
+    try:
+      self.db_conn = psycopg2.connect(
+          host=DB_HOST,
+          port=DB_PORT,
+          dbname=DB_NAME,
+          user=DB_USER,
+          password=DB_PASSWORD
+      )
+      logger.info("CardPlatformLogic initialized. Database connection established.")
+    except Exception as e:
+      logger.error(f"CardPlatformLogic initialized without database connectivity: {e}")
 
   def __del__(self):
       if self.db_conn:
@@ -43,6 +47,9 @@ class CardPlatformLogic:
 
   def get_user_kyc_status(self, user_id: str) -> str:
     """Retrieves the KYC status for a given user from the staging database."""
+    if not self.db_conn:
+        return "KYC status check failed"
+
     try:
         with self.db_conn.cursor() as cur:
             cur.execute(
@@ -60,7 +67,7 @@ class CardPlatformLogic:
 
   def issue_new_card(self, user_id: str, kyc_status: str) -> Dict[str, str]:
     """Calls the external Striga API to issue a new card after KYC confirmation."""
-    if "APPROVED" not in kyc_status:
+    if not self.is_kyc_tier_approved(kyc_status):
       return {"status": "error", "message": "KYC not approved for card issuance"}
 
     # --- MOCKING API CALL to Striga ---
@@ -68,6 +75,19 @@ class CardPlatformLogic:
     card_id = f"card-{user_id}-123"
     print(f"Striga API: Issued new CARD {card_id} for user {user_id}")
     return {"status": "success", "card_id": card_id}
+
+  @staticmethod
+  def is_kyc_tier_approved(kyc_status: str) -> bool:
+    """Current policy: Tier 3+ users are approved for card issuance."""
+    if not kyc_status.startswith("Tier "):
+      return False
+
+    try:
+      tier = int(kyc_status.split("Tier ", 1)[1])
+    except ValueError:
+      return False
+
+    return tier >= 3
 
   def transfer_fiat_to_crypto(self, transaction_data: Dict[str, Any]) -> Dict[str, Any]:
     """

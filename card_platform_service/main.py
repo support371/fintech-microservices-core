@@ -20,7 +20,7 @@ def issue_card_endpoint(request: CardIssuanceRequest):
   """Client endpoint to request a new crypto debit card."""
   kyc_status = card_logic.get_user_kyc_status(request.user_id)
 
-  if "APPROVED" not in kyc_status:
+  if not card_logic.is_kyc_tier_approved(kyc_status):
     raise HTTPException(status_code=403, detail=f"KYC status is {kyc_status}. Requires Tier 3.")
 
   result = card_logic.issue_new_card(request.user_id, kyc_status)
