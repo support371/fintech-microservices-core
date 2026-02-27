@@ -1,0 +1,46 @@
+repo_layout:
+  apps:
+    web: Next.js frontend
+  services:
+    api: Core API service
+  packages:
+    shared: Shared types and validation
+  infra:
+    docker_compose: Local Postgres
+
+run_locally:
+  steps:
+    - copy_env: cp .env.example .env
+    - start_postgres: docker compose -f infra/docker-compose.yml up -d postgres
+
+env_vars:
+  shared:
+    NODE_ENV: development
+  postgres:
+    POSTGRES_HOST: localhost
+    POSTGRES_PORT: 5432
+    POSTGRES_DB: fintech
+    POSTGRES_USER: fintech
+    POSTGRES_PASSWORD: fintech
+  api:
+    API_PORT: 4000
+    JWT_ACCESS_SECRET: change_me
+    JWT_REFRESH_SECRET: change_me
+    JWT_ACCESS_TTL: 15m
+    JWT_REFRESH_TTL: 7d
+    CORS_ALLOWLIST: http://localhost:3000
+    ADMIN_EMAIL: admin@example.com
+    ADMIN_PASSWORD: change_me
+  web:
+    WEB_PORT: 3000
+    NEXT_PUBLIC_API_URL: http://localhost:4000
+
+service_ports:
+  postgres: 5432
+  api: 4000
+  web: 3000
+
+deployment_notes:
+  - Secrets must be provided via environment variables only.
+  - Use strict CORS allowlist in API.
+  - Refresh tokens should be stored in httpOnly cookies.
