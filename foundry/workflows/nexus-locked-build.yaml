@@ -3,6 +3,9 @@
 # This workflow defines the gated build-and-deploy pipeline for the Nexus
 # platform. Every step must pass before the next one starts. A failure at
 # any gate halts the pipeline and notifies the PlatformAgent.
+#
+# Output contract:
+#   Final step emits JSON with { "verdict": "READY" | "BLOCKED", ... }
 
 name: nexus-locked-build
 description: >
@@ -50,43 +53,141 @@ steps:
           tag: converter-service:${{ run.sha }}
 
   # ── Stage 2: Agent Validation Gates ───────────────────────────────
+  #
+  # Each gate MUST return { "status": "APPROVED" | "REJECTED", ... }.
+  # The pipeline hard-stops if status != APPROVED.
+
   - id: compliance-gate
     name: Compliance Agent validation
     agent: ComplianceAgent
     action: validate
+    expected_status: APPROVED
     description: >
       Verify that all code changes comply with KYC/AML policies and that
       no regulatory constraints are violated by the new build.
+    output_format:
+      type: json
+      schema:
+        status:
+          type: string
+          enum: ["APPROVED", "REJECTED"]
+        reason:
+          type: string
+        compliance_event:
+          type: object
     on_failure: halt
 
   - id: security-gate
     name: Security Agent validation
     agent: SecurityAgent
     action: validate
+    expected_status: APPROVED
     description: >
       Scan for exposed secrets, validate HMAC configurations, and ensure
       all webhook endpoints enforce signature verification.
+    output_format:
+      type: json
+      schema:
+        status:
+          type: string
+          enum: ["APPROVED", "REJECTED"]
+        threat_level:
+          type: string
+          enum: ["none", "low", "medium", "high"]
+        security_event:
+          type: object
     on_failure: halt
 
   - id: ledger-gate
     name: Ledger Agent integrity check
     agent: LedgerAgent
     action: verify_integrity
+    expected_status: APPROVED
     description: >
       Confirm that the build does not introduce schema-breaking changes
       to ledger event formats and that idempotency logic is intact.
+    output_format:
+      type: json
+      schema:
+        status:
+          type: string
+          enum: ["APPROVED", "REJECTED"]
+        reason:
+          type: string
+        integrity_report:
+          type: object
     on_failure: halt
 
-  # ── Stage 3: Deploy ───────────────────────────────────────────────
+  - id: platform-gate
+    name: Platform Agent readiness check
+    agent: PlatformAgent
+    action: validate
+    expected_status: APPROVED
+    description: >
+      Verify that platform services are healthy and the deployment
+      configuration is valid before proceeding.
+    output_format:
+      type: json
+      schema:
+        status:
+          type: string
+          enum: ["APPROVED", "REJECTED"]
+        services_healthy:
+          type: boolean
+        reason:
+          type: string
+    on_failure: halt
+
+  # ── Stage 3: Build Agent Decision ─────────────────────────────────
+  #
+  # The BuildAgent receives the full input pack from all four agent
+  # gates and emits a final READY / BLOCKED verdict.
+
+  - id: build-decision
+    name: Build Agent final verdict
+    agent: BuildAgent
+    action: decide
+    input_pack:
+      COMPLIANCE: ${{ steps.compliance-gate.output }}
+      SECURITY: ${{ steps.security-gate.output }}
+      LEDGER: ${{ steps.ledger-gate.output }}
+      PLATFORM: ${{ steps.platform-gate.output }}
+    output_format:
+      type: json
+      schema:
+        verdict:
+          type: string
+          enum: ["READY", "BLOCKED"]
+        build_id:
+          type: string
+        reason:
+          type: string
+        gate_results:
+          type: object
+          properties:
+            COMPLIANCE:
+              type: string
+            SECURITY:
+              type: string
+            LEDGER:
+              type: string
+            PLATFORM:
+              type: string
+    on_failure: halt
+    requires:
+      - compliance-gate
+      - security-gate
+      - ledger-gate
+      - platform-gate
+
+  # ── Stage 4: Deploy (only if verdict == READY) ────────────────────
   - id: publish-artifacts
     name: Publish packages to PyPI
     action: pypi/publish
     with:
       dist_dir: dist/
     requires:
-      - compliance-gate
-      - security-gate
-      - ledger-gate
+      - build-decision
 
   - id: push-images
     name: Push Docker images to registry
@@ -94,9 +195,7 @@ steps:
     with:
       registry: gcr.io
     requires:
-      - compliance-gate
-      - security-gate
-      - ledger-gate
+      - build-decision
 
   - id: deploy
     name: Deploy to Cloud Run
@@ -110,7 +209,7 @@ steps:
       - publish-artifacts
       - push-images
 
-  # ── Stage 4: Post-deploy ──────────────────────────────────────────
+  # ── Stage 5: Post-deploy ──────────────────────────────────────────
   - id: record-deployment
     name: Record deployment in ledger
     agent: LedgerAgent
@@ -119,6 +218,7 @@ steps:
       event_type: deployment_promoted
       payload:
         commit: ${{ run.sha }}
+        build_id: ${{ steps.build-decision.output.build_id }}
         services:
           - card_platform_service
           - converter_service
@@ -134,5 +234,6 @@ steps:
       message: >
         Nexus locked-build ${{ run.id }} completed successfully.
         Commit: ${{ run.sha }}
+        Verdict: ${{ steps.build-decision.output.verdict }}
     requires:
       - record-deployment

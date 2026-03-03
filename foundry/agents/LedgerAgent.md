@@ -25,6 +25,7 @@ incidents, and system state changes.
 | `event_type`     | string | Agent or service identifier     |
 | `payload`        | object | Event-specific data             |
 | `timestamp`      | string | ISO 8601 UTC                    |
+| `source_agent`   | string | Agent or service that produced the event |
 
 ## Outputs
 
@@ -36,8 +37,8 @@ incidents, and system state changes.
 
 ## Integration Points
 
-- Consumes events from **ComplianceAgent**, **SecurityAgent**, and
-  **PlatformAgent**
+- Consumes events from **ComplianceAgent**, **SecurityAgent**,
+  **PlatformAgent**, and **BuildAgent**
 - Backs the reconciliation API used by the admin dashboard
   (`/api/admin/operations`)
 - References schema in `foundry/schemas/ledger.schema.json`

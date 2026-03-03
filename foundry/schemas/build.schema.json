@@ -80,16 +80,16 @@
     "promotion": {
       "type": "object",
       "description": "Deployment promotion policies.",
+      "required": ["required_gates"],
       "properties": {
-        "require_compliance_check": {
-          "type": "boolean",
-          "default": true,
-          "description": "Whether ComplianceAgent sign-off is required before promotion."
-        },
-        "require_security_check": {
-          "type": "boolean",
-          "default": true,
-          "description": "Whether SecurityAgent sign-off is required before promotion."
+        "required_gates": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["COMPLIANCE", "SECURITY", "LEDGER", "PLATFORM"]
+          },
+          "default": ["COMPLIANCE", "SECURITY", "LEDGER", "PLATFORM"],
+          "description": "Agent gates that must return APPROVED before the build can be promoted."
         },
         "auto_promote": {
           "type": "boolean",
@@ -100,6 +100,36 @@
           "type": "string",
           "default": "gcr.io",
           "description": "Container registry for published images."
+        }
+      }
+    },
+    "verdict_output": {
+      "type": "object",
+      "description": "Schema for the BuildAgent's final decision output.",
+      "required": ["verdict", "build_id"],
+      "properties": {
+        "verdict": {
+          "type": "string",
+          "enum": ["READY", "BLOCKED"],
+          "description": "READY if all required gates returned APPROVED; BLOCKED otherwise."
+        },
+        "build_id": {
+          "type": "string",
+          "description": "Unique build identifier."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Human-readable explanation of the verdict."
+        },
+        "gate_results": {
+          "type": "object",
+          "description": "Per-gate status from the input pack.",
+          "properties": {
+            "COMPLIANCE": { "type": "string" },
+            "SECURITY": { "type": "string" },
+            "LEDGER": { "type": "string" },
+            "PLATFORM": { "type": "string" }
+          }
         }
       }
     }
