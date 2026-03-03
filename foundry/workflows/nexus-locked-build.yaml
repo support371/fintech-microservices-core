@@ -1,0 +1,138 @@
+# Nexus Locked-Build Workflow
+# ===========================
+# This workflow defines the gated build-and-deploy pipeline for the Nexus
+# platform. Every step must pass before the next one starts. A failure at
+# any gate halts the pipeline and notifies the PlatformAgent.
+
+name: nexus-locked-build
+description: >
+  End-to-end locked build pipeline for Alliance Trust Realty's Nexus platform.
+  Ensures compliance, security, and ledger integrity before promoting a build.
+
+triggers:
+  - release.published
+  - workflow_dispatch
+
+env:
+  PYTHON_VERSION: "3.x"
+  CARD_SERVICE_PORT: 8001
+  CONVERTER_SERVICE_PORT: 8000
+
+steps:
+  # ── Stage 1: Build ────────────────────────────────────────────────
+  - id: checkout
+    name: Checkout source
+    action: git/checkout
+
+  - id: install-deps
+    name: Install Python dependencies
+    action: python/install
+    with:
+      requirements:
+        - requirements.txt
+        - card_platform_service/requirements.txt
+        - converter_service/requirements.txt
+
+  - id: build-packages
+    name: Build distribution packages
+    action: python/build
+    with:
+      output_dir: dist/
+
+  - id: build-docker
+    name: Build Docker images
+    action: docker/build
+    with:
+      targets:
+        - context: card_platform_service/
+          tag: card-platform-service:${{ run.sha }}
+        - context: converter_service/
+          tag: converter-service:${{ run.sha }}
+
+  # ── Stage 2: Agent Validation Gates ───────────────────────────────
+  - id: compliance-gate
+    name: Compliance Agent validation
+    agent: ComplianceAgent
+    action: validate
+    description: >
+      Verify that all code changes comply with KYC/AML policies and that
+      no regulatory constraints are violated by the new build.
+    on_failure: halt
+
+  - id: security-gate
+    name: Security Agent validation
+    agent: SecurityAgent
+    action: validate
+    description: >
+      Scan for exposed secrets, validate HMAC configurations, and ensure
+      all webhook endpoints enforce signature verification.
+    on_failure: halt
+
+  - id: ledger-gate
+    name: Ledger Agent integrity check
+    agent: LedgerAgent
+    action: verify_integrity
+    description: >
+      Confirm that the build does not introduce schema-breaking changes
+      to ledger event formats and that idempotency logic is intact.
+    on_failure: halt
+
+  # ── Stage 3: Deploy ───────────────────────────────────────────────
+  - id: publish-artifacts
+    name: Publish packages to PyPI
+    action: pypi/publish
+    with:
+      dist_dir: dist/
+    requires:
+      - compliance-gate
+      - security-gate
+      - ledger-gate
+
+  - id: push-images
+    name: Push Docker images to registry
+    action: docker/push
+    with:
+      registry: gcr.io
+    requires:
+      - compliance-gate
+      - security-gate
+      - ledger-gate
+
+  - id: deploy
+    name: Deploy to Cloud Run
+    agent: PlatformAgent
+    action: deploy
+    with:
+      services:
+        - card_platform_service
+        - converter_service
+    requires:
+      - publish-artifacts
+      - push-images
+
+  # ── Stage 4: Post-deploy ──────────────────────────────────────────
+  - id: record-deployment
+    name: Record deployment in ledger
+    agent: LedgerAgent
+    action: record
+    with:
+      event_type: deployment_promoted
+      payload:
+        commit: ${{ run.sha }}
+        services:
+          - card_platform_service
+          - converter_service
+    requires:
+      - deploy
+
+  - id: notify
+    name: Notify stakeholders
+    action: notify
+    with:
+      channels:
+        - platform-alerts
+      message: >
+        Nexus locked-build ${{ run.id }} completed successfully.
+        Commit: ${{ run.sha }}
+    requires:
+      - record-deployment
