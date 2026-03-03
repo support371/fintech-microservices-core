@@ -146,6 +146,15 @@ The workflow triggers automatically on:
 | Cloud Run deploy times out       | Increase the deploy timeout or check service health logs         |
 | Verdict is `BLOCKED`             | Review `gate_results` to find which agent rejected               |
 
+## PR Checklist
+
+- [ ] **Agents created** — All 5 agents exist in `foundry/agents/` (Compliance, Security, Ledger, Platform, Build) with JSON output enabled (`output_format: json` in workflow gates)
+- [ ] **Schemas match** — Each `foundry/schemas/*.schema.json` aligns with its agent's inputs/outputs in `foundry/agents/*.md`
+- [ ] **Workflow pasted** — `foundry/workflows/nexus-locked-build.yaml` loaded in YAML tab; all four gates have `expected_status: APPROVED` and `on_failure: halt`
+- [ ] **BuildAgent input pack** — `build-decision` step receives `COMPLIANCE`, `SECURITY`, `LEDGER`, `PLATFORM` keys
+- [ ] **Run master prompt** — Execute the agent prompts from `scripts/foundry/PROMPTS.md` against a test build
+- [ ] **Confirm verdict** — BuildAgent output is `{"verdict": "READY"}` when all gates pass, `{"verdict": "BLOCKED"}` when any gate rejects
+
 ## Related Files
 
 - `foundry/workflows/nexus-locked-build.yaml` — Workflow definition
