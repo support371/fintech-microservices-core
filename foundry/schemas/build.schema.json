@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexus.alliancetrustrealty.com/schemas/build.schema.json",
+  "title": "BuildAgent Configuration",
+  "description": "Schema for the Build Agent's CI pipeline, artifact management, and deployment promotion settings.",
+  "type": "object",
+  "required": ["ci", "artifacts", "promotion"],
+  "properties": {
+    "ci": {
+      "type": "object",
+      "description": "Continuous integration pipeline settings.",
+      "required": ["workflow_file"],
+      "properties": {
+        "workflow_file": {
+          "type": "string",
+          "default": ".github/workflows/python-publish.yml",
+          "description": "Path to the GitHub Actions workflow definition."
+        },
+        "triggers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["push", "release", "manual"]
+          },
+          "default": ["release"],
+          "description": "Events that trigger the CI pipeline."
+        },
+        "python_version": {
+          "type": "string",
+          "default": "3.x",
+          "description": "Python version constraint for the build environment."
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "description": "Build artifact configuration.",
+      "properties": {
+        "dist_dir": {
+          "type": "string",
+          "default": "dist/",
+          "description": "Directory where built distribution packages are placed."
+        },
+        "docker_targets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["service", "dockerfile"],
+            "properties": {
+              "service": {
+                "type": "string",
+                "description": "Service name."
+              },
+              "dockerfile": {
+                "type": "string",
+                "description": "Path to the Dockerfile."
+              },
+              "port": {
+                "type": "integer",
+                "description": "Port the service listens on."
+              }
+            }
+          },
+          "default": [
+            {
+              "service": "card_platform_service",
+              "dockerfile": "card_platform_service/Dockerfile",
+              "port": 8001
+            },
+            {
+              "service": "converter_service",
+              "dockerfile": "converter_service/Dockerfile",
+              "port": 8000
+            }
+          ],
+          "description": "Docker image build targets."
+        }
+      }
+    },
+    "promotion": {
+      "type": "object",
+      "description": "Deployment promotion policies.",
+      "required": ["required_gates"],
+      "properties": {
+        "required_gates": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["COMPLIANCE", "SECURITY", "LEDGER", "PLATFORM"]
+          },
+          "default": ["COMPLIANCE", "SECURITY", "LEDGER", "PLATFORM"],
+          "description": "Agent gates that must return APPROVED before the build can be promoted."
+        },
+        "auto_promote": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether to automatically promote builds that pass all checks."
+        },
+        "registry": {
+          "type": "string",
+          "default": "gcr.io",
+          "description": "Container registry for published images."
+        }
+      }
+    },
+    "verdict_output": {
+      "type": "object",
+      "description": "Schema for the BuildAgent's final decision output.",
+      "required": ["verdict", "build_id"],
+      "properties": {
+        "verdict": {
+          "type": "string",
+          "enum": ["READY", "BLOCKED"],
+          "description": "READY if all required gates returned APPROVED; BLOCKED otherwise."
+        },
+        "build_id": {
+          "type": "string",
+          "description": "Unique build identifier."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Human-readable explanation of the verdict."
+        },
+        "gate_results": {
+          "type": "object",
+          "description": "Per-gate status from the input pack.",
+          "properties": {
+            "COMPLIANCE": { "type": "string" },
+            "SECURITY": { "type": "string" },
+            "LEDGER": { "type": "string" },
+            "PLATFORM": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}
