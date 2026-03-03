@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "nexus/platform",
+  "title": "Nexus Platform Configuration",
+  "description": "Platform-level configuration for health monitoring, cron scheduling, notifications, and operational limits.",
+  "type": "object",
+  "properties": {
+    "application": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "default": "Nexus Financial" },
+        "framework": { "type": "string", "enum": ["nextjs"] },
+        "framework_version": { "type": "string" },
+        "mock_mode_env_var": { "type": "string", "default": "NEXT_PUBLIC_MOCK_MODE" },
+        "production_guard": {
+          "type": "boolean",
+          "description": "If true, fail fast when mock mode is enabled in Vercel production",
+          "default": true
+        }
+      },
+      "required": ["name", "framework"]
+    },
+    "health_check": {
+      "type": "object",
+      "properties": {
+        "endpoint": { "type": "string", "default": "/api/health" },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["database", "app_config", "providers"]
+          }
+        },
+        "statuses": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["healthy", "unhealthy", "mock"] }
+        }
+      },
+      "required": ["endpoint", "checks"]
+    },
+    "cron_jobs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "path": { "type": "string" },
+          "schedule": { "type": "string", "description": "Cron expression" },
+          "max_duration_seconds": { "type": "integer" },
+          "auth_method": { "type": "string", "enum": ["bearer_token", "none"] }
+        },
+        "required": ["name", "path", "schedule"]
+      }
+    },
+    "notifications": {
+      "type": "object",
+      "properties": {
+        "channels": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["email", "sms", "push"] }
+        },
+        "outbox_batch_size": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "max_retry_attempts": { "type": "integer", "minimum": 1 },
+        "backoff_strategy": { "type": "string", "enum": ["exponential", "linear", "fixed"] },
+        "max_backoff_minutes": { "type": "integer" }
+      },
+      "required": ["channels", "outbox_batch_size", "max_retry_attempts"]
+    },
+    "admin": {
+      "type": "object",
+      "properties": {
+        "operations_endpoint": { "type": "string", "default": "/api/admin/operations" },
+        "max_log_entries": { "type": "integer", "default": 100 },
+        "summary_metrics": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  },
+  "required": ["application", "health_check", "cron_jobs", "notifications"]
+}

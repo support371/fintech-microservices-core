@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "nexus/compliance",
+  "title": "Nexus Compliance Configuration",
+  "description": "Rules for KYC/AML compliance, transaction limits, and regulatory thresholds.",
+  "type": "object",
+  "properties": {
+    "kyc": {
+      "type": "object",
+      "properties": {
+        "tiers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tier": { "type": "integer", "minimum": 0, "maximum": 5 },
+              "label": { "type": "string" },
+              "daily_limit": { "type": "number", "minimum": 0 },
+              "monthly_limit": { "type": "number", "minimum": 0 },
+              "card_eligible": { "type": "boolean" },
+              "exchange_eligible": { "type": "boolean" }
+            },
+            "required": ["tier", "label", "daily_limit", "monthly_limit"]
+          }
+        },
+        "required_for_card_issuance": { "type": "integer", "minimum": 1 },
+        "statuses": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["pending", "submitted", "under_review", "approved", "rejected"]
+          }
+        }
+      },
+      "required": ["tiers", "required_for_card_issuance"]
+    },
+    "aml": {
+      "type": "object",
+      "properties": {
+        "ctr_threshold": {
+          "type": "number",
+          "description": "Currency Transaction Report threshold (e.g., $10,000 for US)"
+        },
+        "velocity_window_hours": { "type": "integer", "minimum": 1 },
+        "max_transactions_per_window": { "type": "integer", "minimum": 1 },
+        "flagged_amount_multiple": {
+          "type": "number",
+          "description": "Flag transactions exceeding this multiple of user average"
+        }
+      },
+      "required": ["ctr_threshold", "velocity_window_hours"]
+    },
+    "transaction_limits": {
+      "type": "object",
+      "properties": {
+        "max_deposit_amount": { "type": "number" },
+        "max_exchange_amount": { "type": "number" },
+        "max_transfer_amount": { "type": "number" }
+      }
+    }
+  },
+  "required": ["kyc", "aml"]
+}

@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "nexus/ledger",
+  "title": "Nexus Ledger Schema",
+  "description": "Double-entry bookkeeping schema for account operations, balance tracking, and financial audit trail.",
+  "type": "object",
+  "properties": {
+    "entry_types": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["debit", "credit"] }
+    },
+    "reference_types": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["deposit", "transfer", "exchange", "card_transaction", "fee", "reversal"]
+      }
+    },
+    "supported_currencies": {
+      "type": "object",
+      "properties": {
+        "fiat": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["USD", "EUR", "GBP"] }
+        },
+        "crypto": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["BTC"] }
+        }
+      },
+      "required": ["fiat", "crypto"]
+    },
+    "account_types": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["checking", "savings", "bitcoin"] }
+    },
+    "precision": {
+      "type": "object",
+      "properties": {
+        "fiat_decimal_places": { "type": "integer", "minimum": 2, "maximum": 4 },
+        "btc_decimal_places": { "type": "integer", "minimum": 8, "maximum": 8 }
+      },
+      "required": ["fiat_decimal_places", "btc_decimal_places"]
+    },
+    "invariants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "check": { "type": "string" }
+        },
+        "required": ["name", "description"]
+      }
+    },
+    "idempotency": {
+      "type": "object",
+      "properties": {
+        "key_pattern": {
+          "type": "string",
+          "description": "Regex pattern for valid idempotency keys"
+        },
+        "key_min_length": { "type": "integer", "minimum": 8 },
+        "key_max_length": { "type": "integer", "maximum": 64 },
+        "scopes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Operation scopes: deposit, transfer, exchange, card"
+        }
+      },
+      "required": ["key_pattern", "scopes"]
+    }
+  },
+  "required": ["entry_types", "reference_types", "supported_currencies", "precision", "idempotency"]
+}

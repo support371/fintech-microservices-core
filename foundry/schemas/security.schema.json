@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "nexus/security",
+  "title": "Nexus Security Configuration",
+  "description": "Security policies for webhook verification, rate limiting, and authentication.",
+  "type": "object",
+  "properties": {
+    "webhook_verification": {
+      "type": "object",
+      "properties": {
+        "algorithm": {
+          "type": "string",
+          "enum": ["sha256", "sha512"],
+          "default": "sha256"
+        },
+        "signature_headers": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Ordered list of headers to check for webhook signatures"
+        },
+        "timing_safe_compare": {
+          "type": "boolean",
+          "default": true
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string", "enum": ["banking", "kyc", "cards"] },
+              "secret_env_var": { "type": "string" },
+              "signature_format": {
+                "type": "string",
+                "enum": ["raw_hex", "sha256_prefix", "stripe_style"]
+              }
+            },
+            "required": ["name", "secret_env_var"]
+          }
+        }
+      },
+      "required": ["algorithm", "sources"]
+    },
+    "rate_limiting": {
+      "type": "object",
+      "properties": {
+        "algorithm": {
+          "type": "string",
+          "enum": ["token_bucket", "sliding_window", "fixed_window"],
+          "default": "token_bucket"
+        },
+        "default_capacity": { "type": "integer", "minimum": 1 },
+        "default_window_ms": { "type": "integer", "minimum": 1000 },
+        "ip_extraction_headers": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["algorithm", "default_capacity", "default_window_ms"]
+    },
+    "authentication": {
+      "type": "object",
+      "properties": {
+        "provider": { "type": "string", "enum": ["supabase", "custom_jwt"] },
+        "cron_auth_method": { "type": "string", "enum": ["bearer_token"] },
+        "admin_auth_ids": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["provider", "cron_auth_method"]
+    },
+    "response_headers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": { "type": "string" },
+          "value": { "type": "string" }
+        },
+        "required": ["key", "value"]
+      }
+    }
+  },
+  "required": ["webhook_verification", "rate_limiting", "authentication"]
+}

@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "nexus/build",
+  "title": "Nexus Build Configuration",
+  "description": "Build pipeline, deployment, and environment validation configuration.",
+  "type": "object",
+  "properties": {
+    "build": {
+      "type": "object",
+      "properties": {
+        "framework": { "type": "string", "enum": ["nextjs"] },
+        "build_command": { "type": "string", "default": "npm run build" },
+        "output_directory": { "type": "string", "default": ".next" },
+        "typescript": {
+          "type": "object",
+          "properties": {
+            "strict": { "type": "boolean", "default": true },
+            "module_resolution": { "type": "string", "enum": ["bundler", "node", "node16"] },
+            "target": { "type": "string" }
+          }
+        },
+        "required_files": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Files that must exist for a valid build"
+        }
+      },
+      "required": ["framework", "build_command"]
+    },
+    "deployment": {
+      "type": "object",
+      "properties": {
+        "platform": { "type": "string", "enum": ["vercel", "railway", "self-hosted"] },
+        "cron_config_file": { "type": "string", "default": "vercel.json" },
+        "database": {
+          "type": "object",
+          "properties": {
+            "provider": { "type": "string", "enum": ["supabase", "postgres", "planetscale"] },
+            "migrations_directory": { "type": "string" },
+            "seed_file": { "type": "string" }
+          },
+          "required": ["provider", "migrations_directory"]
+        }
+      },
+      "required": ["platform", "database"]
+    },
+    "environment": {
+      "type": "object",
+      "properties": {
+        "required_variables": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "public": { "type": "boolean", "default": false },
+              "description": { "type": "string" },
+              "required_in_production": { "type": "boolean", "default": true }
+            },
+            "required": ["name"]
+          }
+        },
+        "example_file": { "type": "string", "default": ".env.example" },
+        "secret_patterns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Glob patterns for files that must be gitignored"
+        }
+      },
+      "required": ["required_variables", "secret_patterns"]
+    },
+    "security_headers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source_pattern": { "type": "string" },
+          "headers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": { "type": "string" },
+                "value": { "type": "string" }
+              },
+              "required": ["key", "value"]
+            }
+          }
+        },
+        "required": ["source_pattern", "headers"]
+      }
+    }
+  },
+  "required": ["build", "deployment", "environment"]
+}

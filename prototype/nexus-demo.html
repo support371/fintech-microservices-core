@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nexus Banking Platform — Interactive Prototype</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0a0e17; --surface: #111827; --border: #1f2937;
+      --text: #e5e7eb; --muted: #6b7280; --accent: #d97706; --accent-light: #f59e0b;
+      --green: #22c55e; --red: #ef4444; --blue: #3b82f6;
+    }
+    body { font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 1rem 2rem; display: flex; align-items: center; justify-content: space-between; }
+    .logo { display: flex; align-items: center; gap: 0.75rem; }
+    .logo-icon { width: 36px; height: 36px; background: var(--accent); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: 700; color: #fff; font-size: 1.1rem; }
+    .logo-text h1 { font-size: 1.1rem; color: #fff; } .logo-text p { font-size: 0.7rem; color: var(--muted); }
+    .user-info { display: flex; align-items: center; gap: 1rem; }
+    .badge { display: inline-flex; align-items: center; padding: 0.2rem 0.6rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 500; }
+    .badge-green { background: rgba(34,197,94,0.15); color: var(--green); }
+    .badge-yellow { background: rgba(217,119,6,0.15); color: var(--accent-light); }
+    .badge-red { background: rgba(239,68,68,0.15); color: var(--red); }
+    .badge-blue { background: rgba(59,130,246,0.15); color: var(--blue); }
+    nav { background: rgba(17,24,39,0.6); border-bottom: 1px solid var(--border); display: flex; padding: 0 2rem; gap: 0.25rem; }
+    nav button { background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted); padding: 0.75rem 1rem; cursor: pointer; font-size: 0.85rem; transition: all 0.15s; }
+    nav button:hover { color: var(--text); } nav button.active { color: var(--accent-light); border-bottom-color: var(--accent); }
+    main { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
+    .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; }
+    .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; }
+    .card-label { font-size: 0.8rem; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+    .card-value { font-size: 1.8rem; font-weight: 700; color: #fff; }
+    .card-sub { font-size: 0.75rem; color: var(--muted); margin-top: 0.25rem; }
+    .btc { color: var(--accent-light); }
+    .form-group { margin-bottom: 1rem; }
+    .form-group label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem; }
+    .form-group input, .form-group select { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.75rem; color: var(--text); font-size: 0.9rem; outline: none; }
+    .form-group input:focus, .form-group select:focus { border-color: var(--accent); }
+    .btn { display: inline-flex; align-items: center; justify-content: center; padding: 0.6rem 1.2rem; border-radius: 8px; font-weight: 500; font-size: 0.85rem; cursor: pointer; border: none; transition: all 0.15s; width: 100%; }
+    .btn-primary { background: var(--accent); color: #fff; } .btn-primary:hover { background: var(--accent-light); }
+    .btn-secondary { background: var(--bg); color: var(--text); border: 1px solid var(--border); } .btn-secondary:hover { background: var(--border); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th { text-align: left; padding: 0.75rem 1rem; color: var(--muted); border-bottom: 1px solid var(--border); font-weight: 500; }
+    td { padding: 0.75rem 1rem; border-bottom: 1px solid rgba(31,41,55,0.5); }
+    .section { margin-top: 1.5rem; } .section h2 { font-size: 1.1rem; margin-bottom: 1rem; }
+    .card-visual { background: linear-gradient(135deg, #1e1b4b, #312e81); border-radius: 12px; padding: 1.5rem; color: #fff; position: relative; overflow: hidden; min-height: 180px; }
+    .card-visual::after { content: ''; position: absolute; right: -20px; top: -20px; width: 120px; height: 120px; background: rgba(255,255,255,0.05); border-radius: 50%; }
+    .card-visual .card-number { font-family: monospace; font-size: 1.3rem; letter-spacing: 3px; margin-top: 2rem; }
+    .card-visual .card-brand { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 2px; opacity: 0.7; }
+    footer { text-align: center; padding: 2rem; color: var(--muted); font-size: 0.75rem; border-top: 1px solid var(--border); margin-top: 2rem; }
+    .hidden { display: none; }
+    .toast { position: fixed; bottom: 1.5rem; right: 1.5rem; background: var(--surface); border: 1px solid var(--green); border-radius: 8px; padding: 1rem 1.5rem; color: var(--green); font-size: 0.85rem; z-index: 100; opacity: 0; transition: opacity 0.3s; }
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">
+      <div class="logo-icon">N</div>
+      <div class="logo-text"><h1>Nexus Financial</h1><p>Bitcoin Banking Platform</p></div>
+    </div>
+    <div class="user-info">
+      <span class="badge badge-green">Mock Mode</span>
+      <span style="font-size:0.85rem;color:var(--muted)">demo@nexus.financial</span>
+    </div>
+  </header>
+
+  <nav id="tabs">
+    <button class="active" data-tab="overview">Overview</button>
+    <button data-tab="deposit">Deposit</button>
+    <button data-tab="transfer">Transfer</button>
+    <button data-tab="exchange">BTC Exchange</button>
+    <button data-tab="cards">Cards</button>
+  </nav>
+
+  <main>
+    <!-- Overview -->
+    <div id="tab-overview">
+      <section class="section"><h2>Your Accounts</h2>
+        <div class="grid-3">
+          <div class="card"><div class="card-header"><span class="card-label">USD Checking</span><span>USD</span></div><div class="card-value">$25,000.00</div><div class="card-sub">Available: $24,500.00</div></div>
+          <div class="card"><div class="card-header"><span class="card-label">EUR Checking</span><span>EUR</span></div><div class="card-value">&euro;10,000.00</div><div class="card-sub">Available: &euro;10,000.00</div></div>
+          <div class="card"><div class="card-header"><span class="card-label">BTC Bitcoin</span><span class="btc">BTC</span></div><div class="card-value btc">0.35000000 BTC</div><div class="card-sub">Available: 0.35000000 BTC</div></div>
+        </div>
+      </section>
+      <section class="section"><h2>BTC Exchange Rates</h2>
+        <div class="grid-3">
+          <div class="card"><span class="card-label">BTC / USD</span><div class="card-value btc">$70,000</div></div>
+          <div class="card"><span class="card-label">BTC / EUR</span><div class="card-value btc">&euro;76,000</div></div>
+          <div class="card"><span class="card-label">BTC / GBP</span><div class="card-value btc">&pound;82,000</div></div>
+        </div>
+      </section>
+      <section class="section"><h2>Recent Deposits</h2>
+        <div class="card" style="padding:0;overflow-x:auto">
+          <table><thead><tr><th>Amount</th><th>Status</th><th>Date</th></tr></thead>
+          <tbody>
+            <tr><td style="font-weight:600">$15,000.00</td><td><span class="badge badge-green">completed</span></td><td style="color:var(--muted)">2024-01-10</td></tr>
+            <tr><td style="font-weight:600">$10,000.00</td><td><span class="badge badge-green">completed</span></td><td style="color:var(--muted)">2024-01-07</td></tr>
+            <tr><td style="font-weight:600">$500.00</td><td><span class="badge badge-yellow">pending</span></td><td style="color:var(--muted)">2024-01-14</td></tr>
+          </tbody></table>
+        </div>
+      </section>
+    </div>
+
+    <!-- Deposit -->
+    <div id="tab-deposit" class="hidden">
+      <div style="max-width:480px;margin:1.5rem auto">
+        <div class="card">
+          <h2 style="margin-bottom:1rem">New Deposit</h2>
+          <div class="form-group"><label>Account</label><select><option>USD Checking ($25,000.00)</option><option>EUR Checking (&euro;10,000.00)</option></select></div>
+          <div class="form-group"><label>Currency</label><select><option>USD</option><option>EUR</option><option>GBP</option></select></div>
+          <div class="form-group"><label>Amount</label><input type="number" placeholder="0.00" step="0.01" min="0.01" /></div>
+          <button class="btn btn-primary" onclick="showToast('Deposit created successfully')">Submit Deposit</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Transfer -->
+    <div id="tab-transfer" class="hidden">
+      <div style="max-width:480px;margin:1.5rem auto">
+        <div class="card">
+          <h2 style="margin-bottom:1rem">Internal Transfer</h2>
+          <div class="form-group"><label>From Account</label><select><option>USD Checking ($25,000.00)</option><option>EUR Checking (&euro;10,000.00)</option><option>BTC Bitcoin (0.35 BTC)</option></select></div>
+          <div class="form-group"><label>To Account</label><select><option>EUR Checking (&euro;10,000.00)</option><option>USD Checking ($25,000.00)</option><option>BTC Bitcoin (0.35 BTC)</option></select></div>
+          <div class="form-group"><label>Currency</label><select><option>USD</option><option>EUR</option><option>GBP</option><option>BTC</option></select></div>
+          <div class="form-group"><label>Amount</label><input type="number" placeholder="0.00" step="0.01" min="0.01" /></div>
+          <button class="btn btn-primary" onclick="showToast('Transfer completed successfully')">Execute Transfer</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Exchange -->
+    <div id="tab-exchange" class="hidden">
+      <div class="grid-3" style="margin-bottom:1.5rem">
+        <div class="card" style="text-align:center"><span class="card-label">1 BTC =</span><div class="card-value btc" style="font-size:1.4rem">$70,000</div></div>
+        <div class="card" style="text-align:center"><span class="card-label">1 BTC =</span><div class="card-value btc" style="font-size:1.4rem">&euro;76,000</div></div>
+        <div class="card" style="text-align:center"><span class="card-label">1 BTC =</span><div class="card-value btc" style="font-size:1.4rem">&pound;82,000</div></div>
+      </div>
+      <div style="max-width:480px;margin:0 auto">
+        <div class="card">
+          <h2 style="margin-bottom:1rem">Buy Bitcoin</h2>
+          <div class="form-group"><label>Fiat Currency</label><select id="exch-currency"><option value="USD">USD</option><option value="EUR">EUR</option><option value="GBP">GBP</option></select></div>
+          <div class="form-group"><label>Amount</label><input id="exch-amount" type="number" placeholder="0.00" step="0.01" min="0.01" oninput="updatePreview()" /></div>
+          <div id="exch-preview" class="card" style="background:var(--bg);text-align:center;margin-bottom:1rem;display:none"><span style="font-size:0.8rem;color:var(--muted)">You will receive approximately</span><div class="btc" style="font-size:1.2rem;font-weight:700;margin-top:0.25rem" id="exch-btc">0.00000000 BTC</div></div>
+          <button class="btn btn-primary" onclick="showToast('BTC purchase completed')">Buy BTC</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cards -->
+    <div id="tab-cards" class="hidden">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+        <h2>Bitcoin Debit Cards</h2>
+        <button class="btn btn-primary" style="width:auto" onclick="showToast('Card requested successfully')">Request New Card</button>
+      </div>
+      <div class="grid-3">
+        <div class="card-visual">
+          <div class="card-brand">Nexus Bitcoin Card</div>
+          <div class="card-number">**** **** **** 4289</div>
+          <div style="display:flex;justify-content:space-between;margin-top:1.5rem;font-size:0.75rem;opacity:0.7"><span>VIRTUAL</span><span class="badge badge-green">active</span></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-label">Card Details</span><span class="badge badge-green">active</span></div>
+          <p style="font-size:0.85rem;color:var(--muted);margin-bottom:0.5rem">Virtual Card &bull; **** 4289</p>
+          <p style="font-size:0.8rem;color:var(--muted)">Daily limit: $5,000.00</p>
+          <p style="font-size:0.8rem;color:var(--muted)">Monthly limit: $50,000.00</p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer>Nexus Financial Platform &mdash; Bitcoin Banking with Double-Entry Ledger &mdash; Prototype Demo</footer>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    const rates = { USD: 70000, EUR: 76000, GBP: 82000 };
+
+    document.getElementById('tabs').addEventListener('click', (e) => {
+      if (e.target.tagName !== 'BUTTON') return;
+      document.querySelectorAll('#tabs button').forEach(b => b.classList.remove('active'));
+      e.target.classList.add('active');
+      document.querySelectorAll('main > div').forEach(d => d.classList.add('hidden'));
+      document.getElementById('tab-' + e.target.dataset.tab).classList.remove('hidden');
+    });
+
+    function updatePreview() {
+      const amount = parseFloat(document.getElementById('exch-amount').value) || 0;
+      const currency = document.getElementById('exch-currency').value;
+      const preview = document.getElementById('exch-preview');
+      const btcEl = document.getElementById('exch-btc');
+      if (amount > 0) {
+        preview.style.display = 'block';
+        btcEl.textContent = (amount / rates[currency]).toFixed(8) + ' BTC';
+      } else {
+        preview.style.display = 'none';
+      }
+    }
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+  </script>
+</body>
+</html>

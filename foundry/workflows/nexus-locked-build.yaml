@@ -1,0 +1,175 @@
+name: nexus-locked-build
+description: >
+  Locked build workflow for the Nexus Banking Platform.
+  Orchestrates all foundry agents in sequence to validate, audit,
+  and deploy the platform with full compliance and security checks.
+
+version: "1.0"
+platform: nexus-banking-fullstack
+
+triggers:
+  - event: push
+    branches: [main, staging]
+  - event: manual
+    label: "Run Nexus Build Pipeline"
+
+environment:
+  MOCK_MODE: "false"
+  STRICT_COMPLIANCE: "true"
+
+stages:
+  # ── Stage 1: Build Validation ──
+  - name: build-validation
+    agent: BuildAgent
+    description: Validate TypeScript build, dependencies, and deployment config
+    steps:
+      - action: validate_typescript
+        config:
+          strict: true
+          module_resolution: bundler
+      - action: validate_dependencies
+        config:
+          audit_level: moderate
+      - action: validate_vercel_config
+        config:
+          check_crons: true
+          check_headers: true
+      - action: validate_environment
+        config:
+          check_required_vars: true
+          fail_on_missing: true
+    on_failure: abort
+
+  # ── Stage 2: Schema Validation ──
+  - name: schema-validation
+    agent: LedgerAgent
+    description: Validate database schema and ledger invariants
+    depends_on: [build-validation]
+    steps:
+      - action: validate_migrations
+        config:
+          directory: supabase/migrations
+          check_syntax: true
+          check_extensions: true
+      - action: validate_ledger_invariants
+        config:
+          check_double_entry: true
+          check_balance_constraints: true
+          check_idempotency_keys: true
+      - action: validate_seed_data
+        config:
+          file: supabase/seed.sql
+          check_referential_integrity: true
+    on_failure: abort
+
+  # ── Stage 3: Security Audit ──
+  - name: security-audit
+    agent: SecurityAgent
+    description: Audit webhook security, authentication, and rate limiting
+    depends_on: [build-validation]
+    steps:
+      - action: audit_webhook_handlers
+        config:
+          sources: [banking, kyc, cards]
+          require_hmac_sha256: true
+          require_timing_safe: true
+      - action: audit_authentication
+        config:
+          check_bearer_token: true
+          check_admin_guards: true
+      - action: audit_rate_limiting
+        config:
+          check_mutation_endpoints: true
+          min_capacity: 10
+          max_window_ms: 120000
+      - action: audit_response_headers
+        config:
+          require_nosniff: true
+          require_frame_deny: true
+      - action: audit_secret_exposure
+        config:
+          check_gitignore: true
+          check_env_example: true
+          scan_source_for_secrets: true
+    on_failure: abort
+
+  # ── Stage 4: Compliance Check ──
+  - name: compliance-check
+    agent: ComplianceAgent
+    description: Verify KYC/AML compliance rules and transaction limits
+    depends_on: [schema-validation, security-audit]
+    steps:
+      - action: verify_kyc_enforcement
+        config:
+          card_min_tier: 3
+          check_all_endpoints: true
+      - action: verify_transaction_limits
+        config:
+          max_deposit: 10000000
+          max_exchange: 100000
+          check_db_constraints: true
+      - action: verify_audit_trail
+        config:
+          check_operations_log: true
+          check_webhook_dedup: true
+          check_ledger_references: true
+    on_failure: warn
+
+  # ── Stage 5: Platform Health ──
+  - name: platform-health
+    agent: PlatformAgent
+    description: Verify platform configuration and operational readiness
+    depends_on: [compliance-check]
+    steps:
+      - action: verify_health_endpoint
+        config:
+          path: /api/health
+          expected_checks: [database, app_config]
+      - action: verify_cron_jobs
+        config:
+          jobs:
+            - path: /api/cron/email-worker
+              schedule: "*/5 * * * *"
+              auth: bearer_token
+      - action: verify_notification_outbox
+        config:
+          batch_size: 25
+          max_attempts: 5
+          backoff: exponential
+      - action: verify_admin_dashboard
+        config:
+          path: /api/admin/operations
+          require_admin_auth: true
+    on_failure: warn
+
+  # ── Stage 6: Deploy ──
+  - name: deploy
+    agent: BuildAgent
+    description: Deploy to Vercel with all checks passed
+    depends_on: [platform-health]
+    condition: all_previous_passed
+    steps:
+      - action: deploy_vercel
+        config:
+          production: true
+          verify_cron_registration: true
+      - action: run_smoke_tests
+        config:
+          endpoints:
+            - { method: GET, path: /api/health, expect_status: 200 }
+            - { method: GET, path: /api/accounts, expect_status: 401 }
+    on_failure: rollback
+
+outputs:
+  - name: build_report
+    description: Full build validation report
+    from: build-validation
+  - name: security_report
+    description: Security audit findings
+    from: security-audit
+  - name: compliance_report
+    description: Compliance verification results
+    from: compliance-check
+  - name: deployment_url
+    description: Deployed application URL
+    from: deploy
