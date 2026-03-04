@@ -94,6 +94,8 @@ export interface MockCard {
   status: string;
   daily_limit: number;
   monthly_limit: number;
+  daily_spent?: number;
+  monthly_spent?: number;
   idempotency_key: string;
   created_at: string;
 }
@@ -140,6 +142,7 @@ export interface MockNotification {
   status: string;
   attempts: number;
   next_retry_at: string;
+  last_error?: string;
 }
 
 export interface MockOperation {
