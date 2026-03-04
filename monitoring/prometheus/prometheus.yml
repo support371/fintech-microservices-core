@@ -1,0 +1,104 @@
+# =============================================================================
+# Prometheus Configuration - Fintech Microservices Monitoring
+# =============================================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+
+  external_labels:
+    cluster: "fintech-production"
+    environment: "production"
+
+# Alerting configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - "alertmanager:9093"
+
+# Rule files
+rule_files:
+  - "alerts/*.yml"
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Card Platform Service
+  - job_name: "card-platform-service"
+    metrics_path: "/metrics"
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names:
+            - fintech-production
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        regex: card-platform-service
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_ip]
+        target_label: __address__
+        replacement: "$1:8001"
+
+  # Converter Service
+  - job_name: "converter-service"
+    metrics_path: "/metrics"
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names:
+            - fintech-production
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        regex: converter-service
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_ip]
+        target_label: __address__
+        replacement: "$1:8000"
+
+  # GEM Dashboard
+  - job_name: "gem-dashboard"
+    metrics_path: "/api/health"
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names:
+            - fintech-production
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        regex: gem-dashboard
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_ip]
+        target_label: __address__
+        replacement: "$1:3000"
+
+  # Kubernetes nodes
+  - job_name: "kubernetes-nodes"
+    kubernetes_sd_configs:
+      - role: node
+    relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+
+  # Kubernetes pods (general)
+  - job_name: "kubernetes-pods"
+    kubernetes_sd_configs:
+      - role: pod
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: "$1:$2"
+        target_label: __address__
