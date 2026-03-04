@@ -1,0 +1,18 @@
+# =============================================================================
+# Example Terraform Variables
+# Copy this file to terraform.tfvars and update values
+# DO NOT commit terraform.tfvars to version control
+# =============================================================================
+
+aws_region          = "us-east-1"
+project_name        = "fintech"
+environment         = "production"
+vpc_cidr            = "10.0.0.0/16"
+eks_cluster_version = "1.29"
+node_instance_types = ["t3.medium", "t3.large"]
+node_desired_size   = 3
+node_min_size       = 2
+node_max_size       = 10
+db_instance_class   = "db.t3.medium"
+db_name             = "fintech"
+db_username         = "fintech_admin"
