@@ -26,7 +26,8 @@ fintech-microservices-core/
 │   │   ├── security.schema.json
 │   │   ├── ledger.schema.json
 │   │   ├── platform.schema.json
-│   │   └── build.schema.json
+│   │   ├── build.schema.json
+│   │   └── privacy.schema.json
 │   └── workflows/               # Orchestration workflows
 │       └── nexus-locked-build.yaml
 ├── scripts/

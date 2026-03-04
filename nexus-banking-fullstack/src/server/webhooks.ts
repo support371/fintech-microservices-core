@@ -4,27 +4,72 @@ import { mockStore } from "./supabase";
 
 type WebhookSource = "banking" | "kyc" | "cards";
 
+/** Maximum age of a webhook timestamp before it's rejected (5 minutes). */
+const MAX_TIMESTAMP_DRIFT_MS = 5 * 60 * 1000;
+
+/** Set of recently seen nonces for replay detection (pruned periodically). */
+const recentNonces = new Map<string, number>();
+
 /**
  * Verify an HMAC-SHA256 webhook signature using timing-safe comparison.
  *
- * Supports two signature formats:
+ * Supports signature formats:
  *   1. Raw hex: "abcdef1234..."
  *   2. Prefixed: "sha256=abcdef1234..."
  *   3. Stripe-style: "t=timestamp,v1=signature"
+ *
+ * Security hardening (per FATF/research recommendations):
+ *   - Timestamp validation to prevent replay attacks
+ *   - Nonce tracking to reject duplicate deliveries
+ *   - Generic error responses to avoid leaking internal state
  */
 export function verifyWebhookSignature(
   source: WebhookSource,
   payloadRaw: string | Buffer,
-  signatureHeader: string
+  signatureHeader: string,
+  timestampHeader?: string | null,
+  nonceHeader?: string | null
 ): boolean {
   if (config.mockMode) return true;
 
   const secret = config.webhookSecrets[source];
   if (!secret) return false;
 
+  // ── Timestamp validation (replay attack mitigation) ──
+  if (timestampHeader) {
+    const ts = parseInt(timestampHeader, 10);
+    if (!Number.isFinite(ts)) return false;
+
+    const now = Math.floor(Date.now() / 1000);
+    const driftMs = Math.abs(now - ts) * 1000;
+    if (driftMs > MAX_TIMESTAMP_DRIFT_MS) {
+      console.warn(
+        `[webhook:${source}] Rejected: timestamp drift ${driftMs}ms exceeds ${MAX_TIMESTAMP_DRIFT_MS}ms`
+      );
+      return false;
+    }
+  }
+
+  // ── Nonce deduplication (replay detection) ──
+  if (nonceHeader) {
+    const nonceKey = `${source}:${nonceHeader}`;
+    if (recentNonces.has(nonceKey)) {
+      console.warn(`[webhook:${source}] Rejected: duplicate nonce ${nonceHeader}`);
+      return false;
+    }
+    recentNonces.set(nonceKey, Date.now());
+  }
+
+  // ── HMAC-SHA256 signature verification ──
+  // If timestamp is present, include it in the signed payload (Stripe convention)
+  let signedPayload: string | Buffer = payloadRaw;
+  if (timestampHeader) {
+    signedPayload = `${timestampHeader}.${typeof payloadRaw === "string" ? payloadRaw : payloadRaw.toString("utf8")}`;
+  }
+
   const expectedMac = crypto
     .createHmac("sha256", secret)
-    .update(payloadRaw)
+    .update(signedPayload)
     .digest("hex");
 
   let providedSig = signatureHeader.trim();
@@ -50,6 +95,16 @@ export function verifyWebhookSignature(
   } catch {
     return false;
   }
+}
+
+// Periodic nonce cleanup (every 10 minutes, discard entries older than 10 minutes)
+if (typeof setInterval !== "undefined") {
+  setInterval(() => {
+    const cutoff = Date.now() - 10 * 60 * 1000;
+    for (const [key, timestamp] of recentNonces) {
+      if (timestamp < cutoff) recentNonces.delete(key);
+    }
+  }, 600_000);
 }
 
 /**

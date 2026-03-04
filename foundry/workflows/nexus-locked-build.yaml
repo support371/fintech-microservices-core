@@ -142,11 +142,37 @@ stages:
           require_admin_auth: true
     on_failure: warn
 
-  # ── Stage 6: Deploy ──
+  # ── Stage 6: Privacy Compliance ──
+  - name: privacy-compliance
+    agent: ComplianceAgent
+    description: Verify data protection compliance across jurisdictions
+    depends_on: [compliance-check]
+    steps:
+      - action: verify_dsr_endpoints
+        config:
+          path: /api/privacy
+          supported_types: [access, rectification, deletion, portability, restriction]
+          require_auth: true
+      - action: verify_deletion_policy
+        config:
+          anonymisation_method: pseudonymisation
+          retained_records: [deposits, transfers, exchange_orders, ledger_entries, operations_log]
+          retention_years: 5
+      - action: verify_data_minimisation
+        config:
+          check_collection_fields: true
+          check_response_filtering: true
+      - action: verify_cross_border_compliance
+        config:
+          check_transfer_mechanisms: true
+          jurisdictions: [US, EU, UK, JP, AE, BR]
+    on_failure: warn
+
+  # ── Stage 7: Deploy ──
   - name: deploy
     agent: BuildAgent
     description: Deploy to Vercel with all checks passed
-    depends_on: [platform-health]
+    depends_on: [platform-health, privacy-compliance]
     condition: all_previous_passed
     steps:
       - action: deploy_vercel
@@ -170,6 +196,9 @@ outputs:
   - name: compliance_report
     description: Compliance verification results
     from: compliance-check
+  - name: privacy_report
+    description: Data protection compliance results
+    from: privacy-compliance
   - name: deployment_url
     description: Deployed application URL
     from: deploy

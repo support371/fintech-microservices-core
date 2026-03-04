@@ -38,7 +38,25 @@
           }
         }
       },
-      "required": ["algorithm", "sources"]
+      "required": ["algorithm", "sources"],
+      "replay_protection": {
+        "type": "object",
+        "description": "Replay attack prevention via timestamp and nonce validation.",
+        "properties": {
+          "max_timestamp_drift_seconds": {
+            "type": "integer",
+            "default": 300,
+            "description": "Maximum age of webhook timestamp (in seconds) before rejection"
+          },
+          "timestamp_header": { "type": "string", "default": "x-webhook-timestamp" },
+          "nonce_header": { "type": "string", "default": "x-webhook-nonce" },
+          "nonce_ttl_seconds": {
+            "type": "integer",
+            "default": 600,
+            "description": "How long to track nonces for deduplication"
+          }
+        }
+      }
     },
     "rate_limiting": {
       "type": "object",
@@ -53,6 +71,32 @@
         "ip_extraction_headers": {
           "type": "array",
           "items": { "type": "string" }
+        },
+        "anomaly_detection": {
+          "type": "object",
+          "description": "Anomaly detection thresholds for rate limiting.",
+          "properties": {
+            "burst_threshold": {
+              "type": "integer",
+              "description": "Max requests within burst_window_ms before flagging"
+            },
+            "burst_window_ms": { "type": "integer" },
+            "violation_flag_threshold": {
+              "type": "integer",
+              "description": "Number of rate limit violations before IP is flagged"
+            },
+            "auth_failure_threshold": {
+              "type": "integer",
+              "description": "Number of auth failures before IP is flagged"
+            },
+            "alert_types": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["burst", "sustained", "auth_failure", "flagged_ip"]
+              }
+            }
+          }
         }
       },
       "required": ["algorithm", "default_capacity", "default_window_ms"]

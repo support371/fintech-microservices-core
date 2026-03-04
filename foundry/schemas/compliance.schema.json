@@ -57,6 +57,89 @@
         "max_exchange_amount": { "type": "number" },
         "max_transfer_amount": { "type": "number" }
       }
+    },
+    "jurisdictions": {
+      "type": "array",
+      "description": "Jurisdiction-specific compliance overrides (FATF risk-based approach).",
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": ["US", "EU", "UK", "JP", "AE", "BR", "DEFAULT"]
+          },
+          "label": { "type": "string" },
+          "ctr_threshold": { "type": "number", "minimum": 0 },
+          "ctr_currency": { "type": "string" },
+          "max_deposit_without_edd": { "type": "number", "minimum": 0 },
+          "max_exchange_amount": { "type": "number", "minimum": 0 },
+          "min_card_kyc_tier": { "type": "integer", "minimum": 1 },
+          "required_id_types": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "velocity_window": {
+            "type": "object",
+            "properties": {
+              "max_transactions": { "type": "integer", "minimum": 1 },
+              "window_hours": { "type": "integer", "minimum": 1 }
+            },
+            "required": ["max_transactions", "window_hours"]
+          },
+          "structuring_detection": {
+            "type": "object",
+            "properties": {
+              "window_hours": { "type": "integer" },
+              "threshold_multiple": {
+                "type": "number",
+                "description": "Fraction of CTR threshold that triggers structuring alert (e.g., 0.8)"
+              }
+            }
+          },
+          "data_protection": {
+            "type": "string",
+            "enum": ["GDPR", "CCPA", "PIPL", "LGPD", "PIPA", "NONE"]
+          },
+          "edd_required": {
+            "type": "boolean",
+            "description": "Whether enhanced due diligence is required for all customers in this jurisdiction"
+          }
+        },
+        "required": ["code", "label", "ctr_threshold", "ctr_currency"]
+      }
+    },
+    "risk_scoring": {
+      "type": "object",
+      "description": "Risk assessment configuration for transaction scoring.",
+      "properties": {
+        "levels": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"]
+          }
+        },
+        "factors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "weight": { "type": "integer", "minimum": 0, "maximum": 30 },
+              "description": { "type": "string" }
+            },
+            "required": ["name", "weight"]
+          }
+        },
+        "thresholds": {
+          "type": "object",
+          "properties": {
+            "edd_required_score": { "type": "integer" },
+            "manual_review_score": { "type": "integer" },
+            "auto_block_score": { "type": "integer" }
+          }
+        }
+      }
     }
   },
   "required": ["kyc", "aml"]

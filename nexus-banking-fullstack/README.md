@@ -9,7 +9,11 @@ Production-grade Bitcoin banking platform with double-entry ledger, GEM-ATR card
 - **Bitcoin exchange** — Fiat-to-BTC conversion with configurable exchange rates
 - **GEM-ATR debit cards** — Virtual and physical card issuance via provider integration
 - **KYC/AML compliance** — Tiered KYC enforcement, transaction limits, audit trails
-- **Webhook ingestion** — HMAC-SHA256 secured handlers for banking, KYC, and card events
+- **Jurisdiction-aware compliance** — FATF risk-based approach with per-jurisdiction CTR thresholds, velocity limits, and EDD rules (US, EU, UK, JP, AE, BR)
+- **Risk scoring engine** — Weighted transaction risk assessment (0-100) with automatic flagging for manual review
+- **Webhook ingestion** — HMAC-SHA256 secured handlers with timestamp validation and nonce-based replay prevention
+- **Anomaly detection** — Burst pattern detection, sustained violation tracking, auth failure monitoring, and IP flagging
+- **GDPR/CCPA privacy** — Data subject request API (access, rectification, deletion, portability, restriction)
 - **Notification outbox** — Transactional outbox pattern with exponential backoff retry
 - **Mock mode** — Full local development without external service dependencies
 
@@ -24,6 +28,7 @@ app/
 │   ├── transfers/       POST   — Double-entry fund transfers
 │   ├── cards/           GET/POST — Bitcoin card management
 │   ├── exchange/        GET/POST — Fiat-to-BTC conversion
+│   ├── privacy/         GET/POST — GDPR/CCPA data subject requests
 │   ├── webhooks/
 │   │   ├── banking/     POST   — Banking event ingestion
 │   │   ├── kyc/         POST   — KYC status updates
@@ -42,8 +47,10 @@ src/
 │   ├── supabase.ts      — Supabase clients + mock data store
 │   ├── auth.ts          — User authentication (Supabase JWT / mock)
 │   ├── validation.ts    — Input validation (amounts, currencies, UUIDs)
-│   ├── webhooks.ts      — HMAC verification + event deduplication
-│   ├── ratelimit.ts     — Token bucket rate limiter
+│   ├── webhooks.ts      — HMAC verification + replay prevention + event dedup
+│   ├── ratelimit.ts     — Token bucket rate limiter with anomaly detection
+│   ├── compliance.ts    — Jurisdiction-aware compliance engine + risk scoring
+│   ├── privacy.ts       — GDPR/CCPA data subject request handlers
 │   └── providers.ts     — External provider clients (mock implementations)
 └── ui/
     └── components/
@@ -102,11 +109,40 @@ The schema uses PostgreSQL via Supabase with 10 tables:
 ## Security
 
 - HMAC-SHA256 webhook signature verification with `crypto.timingSafeEqual`
-- Token bucket rate limiting (30 req/60s per IP on mutations)
+- Replay attack prevention: timestamp validation (5-min drift window) + nonce deduplication
+- Token bucket rate limiting (30 req/60s per IP) with anomaly detection
+- Anomaly detection: burst patterns (>10 req/5s), auth failure tracking, IP flagging
 - Idempotency keys on all financial operations
 - Bearer token authentication on cron endpoints
 - Production guard: mock mode blocked on Vercel production
 - Security headers: X-Content-Type-Options, X-Frame-Options, Referrer-Policy
+
+## Global Compliance
+
+Jurisdiction-aware compliance engine implementing the FATF risk-based approach:
+
+| Jurisdiction | CTR Threshold | Min Card KYC | Data Protection |
+|-------------|---------------|-------------|-----------------|
+| US | $10,000 | Tier 2 | CCPA |
+| EU | EUR 10,000 | Tier 3 | GDPR |
+| UK | GBP 10,000 | Tier 3 | GDPR |
+| JP | JPY 2,000,000 | Tier 3 | PIPA |
+| AE | AED 55,000 | Tier 3 | - |
+| BR | BRL 50,000 | Tier 2 | LGPD |
+
+Risk scoring factors: CTR proximity, KYC tier, PEP status, transaction velocity, account age, jurisdiction EDD requirements. Scores 0-100 mapped to low/medium/high/critical.
+
+## Data Privacy
+
+GDPR/CCPA-compliant data subject request API (`/api/privacy`):
+
+- **Access** (Art. 15) — Export all personal data as JSON
+- **Rectification** (Art. 16) — Correct name or email
+- **Deletion** (Art. 17) — Anonymise PII; retain financial records per Art. 17(3)(b)
+- **Portability** (Art. 20) — Machine-readable JSON export
+- **Restriction** (Art. 18) — Logged for manual processing within 30 days
+
+Deletion anonymises PII but retains financial records required by AML regulations (5-year minimum retention).
 
 ## Deployment
 

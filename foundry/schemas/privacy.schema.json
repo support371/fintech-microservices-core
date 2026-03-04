@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "nexus/privacy",
+  "title": "Nexus Data Privacy Schema",
+  "description": "Data protection configuration for GDPR, CCPA, LGPD, and other privacy regimes.",
+  "type": "object",
+  "properties": {
+    "data_subject_rights": {
+      "type": "object",
+      "description": "Supported data subject request types per GDPR Articles 15-20 and CCPA equivalents.",
+      "properties": {
+        "supported_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["access", "rectification", "deletion", "portability", "restriction"]
+          }
+        },
+        "response_deadline_days": {
+          "type": "integer",
+          "default": 30,
+          "description": "Maximum days to respond to a DSR (GDPR: 30 days, CCPA: 45 days)"
+        },
+        "identity_verification_required": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether the user must be authenticated to submit a DSR"
+        }
+      },
+      "required": ["supported_types", "response_deadline_days"]
+    },
+    "deletion_policy": {
+      "type": "object",
+      "description": "How deletion requests handle regulatory retention requirements.",
+      "properties": {
+        "anonymisation_method": {
+          "type": "string",
+          "enum": ["pseudonymisation", "full_deletion", "aggregation"],
+          "default": "pseudonymisation"
+        },
+        "retained_record_types": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Record types retained for regulatory compliance (GDPR Art. 17(3)(b))"
+        },
+        "retention_period_years": {
+          "type": "integer",
+          "minimum": 5,
+          "description": "Minimum years to retain financial records (AML regulations)"
+        },
+        "pii_fields_anonymised": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "User fields that are anonymised on deletion"
+        }
+      },
+      "required": ["anonymisation_method", "retained_record_types", "retention_period_years"]
+    },
+    "data_minimisation": {
+      "type": "object",
+      "description": "Rules for collecting only necessary personal data.",
+      "properties": {
+        "required_fields": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Minimum fields required for account creation"
+        },
+        "optional_fields": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "prohibited_collection": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Data that must never be collected (e.g., religion, political views)"
+        }
+      },
+      "required": ["required_fields"]
+    },
+    "cross_border_transfers": {
+      "type": "object",
+      "description": "Rules for international data transfers.",
+      "properties": {
+        "transfer_mechanisms": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "adequacy_decision",
+              "standard_contractual_clauses",
+              "binding_corporate_rules",
+              "explicit_consent",
+              "derogation_contract"
+            ]
+          }
+        },
+        "restricted_countries": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "ISO country codes where data transfer is restricted"
+        }
+      }
+    },
+    "privacy_regimes": {
+      "type": "array",
+      "description": "Applicable privacy regulations by jurisdiction.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "regime": {
+            "type": "string",
+            "enum": ["GDPR", "CCPA", "PIPL", "LGPD", "PIPA", "PDPA"]
+          },
+          "jurisdictions": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "dsr_deadline_days": { "type": "integer" },
+          "breach_notification_hours": {
+            "type": "integer",
+            "description": "Hours within which authorities must be notified of a breach"
+          },
+          "penalties": {
+            "type": "object",
+            "properties": {
+              "max_fine_percentage_revenue": { "type": "number" },
+              "max_fine_fixed": { "type": "number" }
+            }
+          }
+        },
+        "required": ["regime", "jurisdictions"]
+      }
+    },
+    "encryption": {
+      "type": "object",
+      "properties": {
+        "at_rest": { "type": "string", "enum": ["AES-256", "AES-128"], "default": "AES-256" },
+        "in_transit": { "type": "string", "enum": ["TLS-1.2", "TLS-1.3"], "default": "TLS-1.3" },
+        "pii_field_encryption": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether PII fields are additionally encrypted at the application layer"
+        }
+      }
+    }
+  },
+  "required": [
+    "data_subject_rights",
+    "deletion_policy",
+    "data_minimisation",
+    "privacy_regimes"
+  ]
+}
