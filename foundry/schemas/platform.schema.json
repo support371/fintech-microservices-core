@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexus.alliancetrustrealty.com/schemas/platform.schema.json",
+  "title": "PlatformAgent Configuration",
+  "description": "Schema for the Platform Agent's workflow orchestration, health monitoring, and deployment settings.",
+  "type": "object",
+  "required": ["services", "workflows", "retry"],
+  "properties": {
+    "services": {
+      "type": "object",
+      "description": "Service registry for the platform.",
+      "required": ["card_platform_service", "converter_service"],
+      "properties": {
+        "card_platform_service": {
+          "type": "object",
+          "properties": {
+            "base_url": {
+              "type": "string",
+              "format": "uri",
+              "default": "http://localhost:8001",
+              "description": "Base URL for the card platform service."
+            },
+            "health_endpoint": {
+              "type": "string",
+              "default": "/health",
+              "description": "Health check path."
+            }
+          }
+        },
+        "converter_service": {
+          "type": "object",
+          "properties": {
+            "base_url": {
+              "type": "string",
+              "format": "uri",
+              "default": "http://localhost:8000",
+              "description": "Base URL for the converter service."
+            },
+            "health_endpoint": {
+              "type": "string",
+              "default": "/health",
+              "description": "Health check path."
+            }
+          }
+        }
+      }
+    },
+    "workflows": {
+      "type": "object",
+      "description": "Workflow execution settings.",
+      "properties": {
+        "default_workflow": {
+          "type": "string",
+          "default": "nexus-locked-build",
+          "description": "Default workflow to execute when no specific workflow is requested."
+        },
+        "workflow_dir": {
+          "type": "string",
+          "default": "foundry/workflows",
+          "description": "Directory containing workflow YAML definitions."
+        }
+      }
+    },
+    "retry": {
+      "type": "object",
+      "description": "Retry and error recovery settings.",
+      "properties": {
+        "max_retries": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 3,
+          "description": "Maximum number of retry attempts for failed operations."
+        },
+        "backoff_base_seconds": {
+          "type": "number",
+          "minimum": 0.1,
+          "default": 2.0,
+          "description": "Base delay in seconds for exponential back-off."
+        },
+        "backoff_max_seconds": {
+          "type": "number",
+          "minimum": 1,
+          "default": 60,
+          "description": "Maximum delay cap for exponential back-off."
+        }
+      }
+    },
+    "health_check": {
+      "type": "object",
+      "description": "Health monitoring configuration.",
+      "properties": {
+        "interval_seconds": {
+          "type": "integer",
+          "minimum": 5,
+          "default": 30,
+          "description": "Interval between health check polls."
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 5,
+          "description": "Timeout for each health check request."
+        }
+      }
+    }
+  }
+}

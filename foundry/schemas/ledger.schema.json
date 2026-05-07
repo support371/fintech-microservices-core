@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexus.alliancetrustrealty.com/schemas/ledger.schema.json",
+  "title": "LedgerAgent Event Schema",
+  "description": "Schema for ledger entries recorded by the Ledger Agent. Every platform event is stored as an immutable entry.",
+  "type": "object",
+  "required": ["entry_id", "trace_id", "event_type", "timestamp", "payload"],
+  "properties": {
+    "entry_id": {
+      "type": "string",
+      "pattern": "^led-[a-z0-9]{8,}$",
+      "description": "Unique, immutable identifier for this ledger entry."
+    },
+    "trace_id": {
+      "type": "string",
+      "description": "Trace identifier from the originating service or agent."
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "card_issued",
+        "fund_loaded",
+        "conversion_settled",
+        "webhook_received",
+        "compliance_decision",
+        "security_event",
+        "build_completed",
+        "deployment_promoted"
+      ],
+      "description": "Category of the recorded event."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp of when the event occurred."
+    },
+    "payload": {
+      "type": "object",
+      "description": "Event-specific data. Structure varies by event_type.",
+      "additionalProperties": true
+    },
+    "source_agent": {
+      "type": "string",
+      "enum": [
+        "ComplianceAgent",
+        "SecurityAgent",
+        "LedgerAgent",
+        "PlatformAgent",
+        "BuildAgent",
+        "card_platform_service",
+        "converter_service"
+      ],
+      "description": "The agent or service that produced this event."
+    },
+    "duplicate": {
+      "type": "boolean",
+      "default": false,
+      "description": "True if this event was deduplicated against an existing entry."
+    },
+    "retention_days": {
+      "type": "integer",
+      "minimum": 30,
+      "default": 365,
+      "description": "Number of days this entry must be retained before archival."
+    }
+  }
+}

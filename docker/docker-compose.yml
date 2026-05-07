@@ -1,0 +1,99 @@
+# Docker Compose for local development and testing
+# NOT intended for production use - use Kubernetes manifests instead
+
+version: "3.9"
+
+services:
+  # -------------------------------------------------------
+  # Card Platform Service
+  # -------------------------------------------------------
+  card-platform-service:
+    build:
+      context: ../
+      dockerfile: docker/card-platform-service/Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=fintech
+      - DB_USER=fintech_user
+      - DB_PASSWORD=${DB_PASSWORD:-changeme}
+      - CONVERTER_INTERNAL_URL=http://converter-service:8000
+      - STRIGA_API_BASE_URL=${STRIGA_API_BASE_URL:-https://api.striga.com/v1}
+      - STRIGA_API_KEY=${STRIGA_API_KEY}
+      - KYC_MINIMUM_TIER=${KYC_MINIMUM_TIER:-3}
+      - AML_SINGLE_TRANSACTION_LIMIT=${AML_SINGLE_TRANSACTION_LIMIT:-10000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      converter-service:
+        condition: service_healthy
+    networks:
+      - fintech-internal
+    restart: unless-stopped
+
+  # -------------------------------------------------------
+  # Converter Service
+  # -------------------------------------------------------
+  converter-service:
+    build:
+      context: ../
+      dockerfile: docker/converter-service/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - STRIGA_WEBHOOK_SECRET=${STRIGA_WEBHOOK_SECRET}
+      - STRIGA_API_KEY=${STRIGA_API_KEY}
+      - STRIGA_API_BASE_URL=${STRIGA_API_BASE_URL:-https://api.striga.com/v1}
+      - AML_SINGLE_TRANSACTION_LIMIT=${AML_SINGLE_TRANSACTION_LIMIT:-10000}
+    networks:
+      - fintech-internal
+    restart: unless-stopped
+
+  # -------------------------------------------------------
+  # GEM Dashboard
+  # -------------------------------------------------------
+  gem-dashboard:
+    build:
+      context: ../
+      dockerfile: docker/gem-dashboard/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_MOCK_MODE=false
+      - CRON_SECRET=${CRON_SECRET}
+      - BANKING_WEBHOOK_SECRET=${BANKING_WEBHOOK_SECRET}
+    networks:
+      - fintech-internal
+    restart: unless-stopped
+
+  # -------------------------------------------------------
+  # PostgreSQL (local dev only)
+  # -------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=fintech
+      - POSTGRES_USER=fintech_user
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-changeme}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fintech_user -d fintech"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - fintech-internal
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+
+networks:
+  fintech-internal:
+    driver: bridge

@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexus.alliancetrustrealty.com/schemas/compliance.schema.json",
+  "title": "ComplianceAgent Configuration",
+  "description": "Schema for the Compliance Agent's policies, KYC tier rules, and AML thresholds.",
+  "type": "object",
+  "required": ["kyc", "aml", "reporting"],
+  "properties": {
+    "kyc": {
+      "type": "object",
+      "description": "KYC tier enforcement settings.",
+      "required": ["minimum_tier", "tier_field"],
+      "properties": {
+        "minimum_tier": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 3,
+          "description": "Minimum KYC tier required for card issuance and fund operations."
+        },
+        "tier_field": {
+          "type": "string",
+          "default": "kyc_tier",
+          "description": "Column name in the users table that stores the KYC tier."
+        }
+      }
+    },
+    "aml": {
+      "type": "object",
+      "description": "Anti-Money Laundering screening settings.",
+      "required": ["single_txn_limit", "daily_aggregate_limit", "currency"],
+      "properties": {
+        "single_txn_limit": {
+          "type": "number",
+          "minimum": 0,
+          "default": 10000,
+          "description": "Maximum amount for a single transaction before requiring additional review."
+        },
+        "daily_aggregate_limit": {
+          "type": "number",
+          "minimum": 0,
+          "default": 50000,
+          "description": "Maximum aggregate daily transaction amount per user."
+        },
+        "currency": {
+          "type": "string",
+          "default": "USD",
+          "description": "Currency for limit values."
+        }
+      }
+    },
+    "reporting": {
+      "type": "object",
+      "description": "Compliance reporting configuration.",
+      "properties": {
+        "interval_hours": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 24,
+          "description": "Interval in hours between periodic compliance summary reports."
+        },
+        "include_approved": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether to include approved transactions in the report."
+        }
+      }
+    }
+  }
+}

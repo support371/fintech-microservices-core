@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fintech-config
+  namespace: fintech-production
+  labels:
+    app.kubernetes.io/part-of: fintech-microservices
+data:
+  # Compliance Configuration
+  KYC_MINIMUM_TIER: "3"
+  AML_SINGLE_TRANSACTION_LIMIT: "10000"
+  AML_DAILY_TRANSACTION_LIMIT: "50000"
+  AML_MONTHLY_TRANSACTION_LIMIT: "200000"
+
+  # Service Discovery
+  CONVERTER_INTERNAL_URL: "http://converter-service.fintech-production.svc.cluster.local:8000"
+  CARD_PLATFORM_URL: "http://card-platform-service.fintech-production.svc.cluster.local:8001"
+
+  # Logging Configuration
+  LOG_LEVEL: "INFO"
+  LOG_FORMAT: "json"
+  AUDIT_LOG_RETENTION_YEARS: "5"
+
+  # Feature Flags
+  ENABLE_AML_SCREENING: "true"
+  ENABLE_TRANSACTION_MONITORING: "true"
+  MOCK_MODE: "false"

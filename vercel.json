@@ -20,6 +20,30 @@
     {
       "src": "/api/platform/(.*)",
       "dest": "/api/card_platform_service/main.py"
+      "src": "api/*.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/api/v1/(.*)",
+      "destination": "/api/card_service.py"
+    },
+    {
+      "source": "/webhook/(.*)",
+      "destination": "/api/converter_service.py"
+    },
+    {
+      "source": "/internal/(.*)",
+      "destination": "/api/converter_service.py"
+    },
+    {
+      "source": "/health",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/",
+      "destination": "/api/index.py"
     }
   ]
 }

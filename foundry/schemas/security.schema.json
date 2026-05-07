@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexus.alliancetrustrealty.com/schemas/security.schema.json",
+  "title": "SecurityAgent Configuration",
+  "description": "Schema for the Security Agent's HMAC validation, rate limiting, and anomaly detection settings.",
+  "type": "object",
+  "required": ["hmac", "rate_limiting", "anomaly_detection"],
+  "properties": {
+    "hmac": {
+      "type": "object",
+      "description": "HMAC signature validation settings.",
+      "required": ["algorithm", "header_name"],
+      "properties": {
+        "algorithm": {
+          "type": "string",
+          "enum": ["sha256", "sha384", "sha512"],
+          "default": "sha256",
+          "description": "Hash algorithm used for HMAC signature verification."
+        },
+        "header_name": {
+          "type": "string",
+          "default": "X-Signature",
+          "description": "HTTP header containing the HMAC signature."
+        },
+        "secret_env_var": {
+          "type": "string",
+          "default": "STRIGA_WEBHOOK_SECRET",
+          "description": "Environment variable name holding the HMAC secret key."
+        }
+      }
+    },
+    "rate_limiting": {
+      "type": "object",
+      "description": "Rate limiting configuration for public-facing endpoints.",
+      "properties": {
+        "window_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 60,
+          "description": "Time window in seconds for rate limit evaluation."
+        },
+        "max_requests": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 100,
+          "description": "Maximum requests allowed per window per source IP."
+        }
+      }
+    },
+    "anomaly_detection": {
+      "type": "object",
+      "description": "Anomaly detection thresholds.",
+      "properties": {
+        "failed_signature_threshold": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 5,
+          "description": "Number of failed signature checks before raising a high threat level."
+        },
+        "threat_levels": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["none", "low", "medium", "high"]
+          },
+          "default": ["none", "low", "medium", "high"],
+          "description": "Ordered list of threat severity levels."
+        }
+      }
+    }
+  }
+}
