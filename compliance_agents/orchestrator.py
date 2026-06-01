@@ -110,7 +110,8 @@ class NexusComplianceOrchestrator:
         )
 
         # Step 4: Audit screening decision
-        decision_entry = self._audit.record_screening_decision(record, screening_result)
+        audit_entries = self._audit.record_screening_decision(record, screening_result)
+        decision_entry = audit_entries[-1]  # final decision is always last
 
         # Step 5: Auto-generate SAR for high-risk results
         sar: Optional[SARReport] = None

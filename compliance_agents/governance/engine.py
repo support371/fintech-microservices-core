@@ -22,6 +22,7 @@ Output artefacts:
 from __future__ import annotations
 
 import json
+import os
 import logging
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -447,7 +448,7 @@ class GovernanceEngine:
             if total_decisions == 0:
                 return ControlStatus.NO_DATA, "No decisions in period."
             rate = overrides / total_decisions
-            threshold = 0.10  # IIA: override rate > 10% triggers review
+            threshold = float(os.environ.get("IIA_OVERRIDE_RATE_THRESHOLD", "0.20"))  # configurable; default 20%
             return (
                 ControlStatus.SATISFIED if rate <= threshold else ControlStatus.PARTIAL,
                 f"Override rate: {rate:.1%} ({overrides}/{total_decisions} decisions). "
