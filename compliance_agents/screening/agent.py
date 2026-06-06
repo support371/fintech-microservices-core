@@ -1,23 +1,27 @@
 """
 Agent 2: ScreeningAgent (with LLM integration)
 ================================================
-Combines rule-based screening with Claude LLM analysis to produce
+Combines rule-based screening with OpenAI LLM analysis to produce
 a final risk score and decision for each IngestedRecord.
 
 Pipeline:
-  IngestedRecord → Rule Engine (7 rules) → LLM analysis (Claude)
+  IngestedRecord → Rule Engine (7 rules) → LLM analysis (OpenAI)
                 → aggregate decision → ScreeningResult
                 → emit AuditEntry via AuditTrailAgent
 
 CRITICAL: Every ScreeningResult records the watchlist_version_id that
 was active at screening time. This is a hard regulatory requirement.
 
-LLM Role:
+LLM Role (OpenAI):
   - Analyses the full normalised payload + all rule results
   - Identifies qualitative / contextual red flags that rules miss
   - Assigns an independent risk score (low/medium/high/critical)
   - Provides a plain-English narrative for the audit record
   - Its raw response is stored verbatim in the audit trail
+
+Environment:
+  OPENAI_API_KEY   — required for LLM analysis; set via set_secrets
+  OPENAI_MODEL     — optional model override (default: gpt-4o)
 """
 
 from __future__ import annotations
@@ -28,7 +32,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-import anthropic
+from openai import OpenAI
 
 from compliance_agents.data_ingestion.agent import DataIngestionAgent
 from compliance_agents.shared.models import (
@@ -55,9 +59,11 @@ RULE_DECISION_TO_RISK: Dict[ScreeningRuleResult, RiskScore] = {
     ScreeningRuleResult.BLOCK: RiskScore.HIGH,
 }
 
-LLM_PROMPT_VERSION = "v1.2.0"
+LLM_PROMPT_VERSION = "v2.0.0"   # bumped — now OpenAI-backed
 
-LLM_SYSTEM_PROMPT = """You are a senior AML (Anti-Money Laundering) compliance analyst for Alliance Trust Realty's Nexus fintech platform. Your job is to review financial transaction data and rule-based screening results, then provide an expert qualitative risk assessment.
+LLM_SYSTEM_PROMPT = """You are a senior AML (Anti-Money Laundering) compliance analyst \
+for the Nexus fintech platform. Your job is to review financial transaction data and \
+rule-based screening results, then provide an expert qualitative risk assessment.
 
 You must respond with ONLY valid JSON matching this exact schema:
 {
@@ -73,15 +79,15 @@ Guidelines:
 - "high": Strong indicators of suspicious activity, escalate immediately
 - "critical": Clear indicators of fraud, money laundering, or sanctions violation
 
-Common flags to use: structuring, velocity_spike, geographic_risk, watchlist_proximity, kyc_mismatch, round_amount_pattern, unusual_hours, beneficiary_risk, layering_pattern, smurfing
+Common flags: structuring, velocity_spike, geographic_risk, watchlist_proximity,
+kyc_mismatch, round_amount_pattern, unusual_hours, beneficiary_risk, layering_pattern, smurfing
 
-Be concise. The narrative will appear in regulatory audit trails and SAR filings.
-"""
+Be concise. The narrative will appear in regulatory audit trails and SAR filings."""
 
 
 class ScreeningAgent:
     """
-    Modular screening system combining rule-based logic with LLM analysis.
+    Modular screening system combining rule-based logic with OpenAI LLM analysis.
 
     Usage:
         agent = ScreeningAgent()
@@ -90,17 +96,29 @@ class ScreeningAgent:
 
     AGENT_NAME = "ScreeningAgent"
 
+    # Model used for LLM analysis — override with OPENAI_MODEL env var
+    DEFAULT_MODEL = "gpt-4o"
+
     def __init__(self) -> None:
         init_db()
         self._rule_engine = RuleEngine()
         self._ingestion_agent = DataIngestionAgent()
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
-        self._llm_client = anthropic.Anthropic(api_key=api_key) if api_key else None
+
+        api_key = os.environ.get("OPENAI_API_KEY")
+        self._model = os.environ.get("OPENAI_MODEL", self.DEFAULT_MODEL)
+        self._llm_client: Optional[OpenAI] = OpenAI(api_key=api_key) if api_key else None
+
         if not self._llm_client:
             logger.warning(
-                "[ScreeningAgent] ANTHROPIC_API_KEY not set — LLM analysis disabled. "
+                "[ScreeningAgent] OPENAI_API_KEY not set — LLM analysis disabled. "
                 "Rule-based screening will still run."
             )
+        else:
+            logger.info(
+                "[ScreeningAgent] OpenAI LLM enabled — model=%s prompt_version=%s",
+                self._model, LLM_PROMPT_VERSION,
+            )
+
         logger.info("[ScreeningAgent] Initialised.")
 
     # ------------------------------------------------------------------
@@ -127,9 +145,7 @@ class ScreeningAgent:
         Returns:
             ScreeningResult with full rule + LLM context.
         """
-        # Resolve watchlist version
         wl_version_id = watchlist_version_id or self._get_active_watchlist_id()
-
         user_id = record.payload.get("user_id")
 
         # ── Step 1: Rule-based screening ─────────────────────────────────
@@ -142,13 +158,13 @@ class ScreeningAgent:
         rule_risk = RULE_DECISION_TO_RISK[rule_decision]
 
         logger.info(
-            f"[ScreeningAgent] Rules complete for record={record.record_id}: "
-            f"decision={rule_decision.value} risk={rule_risk.value}"
+            "[ScreeningAgent] Rules: record=%s decision=%s risk=%s",
+            record.record_id, rule_decision.value, rule_risk.value,
         )
 
-        # ── Step 2: LLM analysis ─────────────────────────────────────────
-        # Run LLM when: forced, or rule decision is not a clean PASS,
-        # or the stream type is a user_profile (always do behavioural analysis)
+        # ── Step 2: LLM analysis (OpenAI) ────────────────────────────────
+        # Run LLM when: forced, rule decision is not a clean PASS,
+        # or the stream type is user_profile (behavioural analysis always on)
         should_run_llm = (
             force_llm
             or rule_decision != ScreeningRuleResult.PASS
@@ -177,9 +193,8 @@ class ScreeningAgent:
         self._persist(result)
 
         logger.info(
-            f"[ScreeningAgent] Screening complete: screening_id={result.screening_id} "
-            f"final={final_decision.value} risk={final_risk.value} "
-            f"watchlist_version={wl_version_id}"
+            "[ScreeningAgent] Complete: screening_id=%s final=%s risk=%s wl=%s",
+            result.screening_id, final_decision.value, final_risk.value, wl_version_id,
         )
 
         return result
@@ -194,7 +209,7 @@ class ScreeningAgent:
         results = []
         for record in records:
             if record.is_duplicate:
-                logger.debug(f"[ScreeningAgent] Skipping duplicate record={record.record_id}")
+                logger.debug("[ScreeningAgent] Skipping duplicate record=%s", record.record_id)
                 continue
             result = self.screen(
                 record,
@@ -205,7 +220,7 @@ class ScreeningAgent:
         return results
 
     # ------------------------------------------------------------------
-    # Private helpers
+    # Private: LLM analysis via OpenAI
     # ------------------------------------------------------------------
 
     def _run_llm_analysis(
@@ -214,49 +229,60 @@ class ScreeningAgent:
         rule_results: List,
         rule_decision: ScreeningRuleResult,
     ) -> Optional[LLMAnalysis]:
-        """Call Claude to analyse the transaction context."""
+        """
+        Send the transaction + rule context to OpenAI and parse the response.
+        Raw response is stored verbatim — never truncated (GAO-AI-TR.04).
+        """
         try:
             rule_summary = [
                 {
                     "rule_id": r.rule_id,
-                    "rule": r.rule_name,
-                    "result": r.result.value,
-                    "detail": r.detail,
+                    "rule":    r.rule_name,
+                    "result":  r.result.value,
+                    "detail":  r.detail,
                 }
                 for r in rule_results
             ]
 
             user_message = json.dumps({
-                "transaction_data": record.payload,
-                "stream_type": record.stream_type.value,
-                "rule_screening_summary": rule_summary,
-                "rule_aggregate_decision": rule_decision.value,
-                "ingested_at": record.ingested_at.isoformat(),
+                "transaction_data":         record.payload,
+                "stream_type":              record.stream_type.value,
+                "rule_screening_summary":   rule_summary,
+                "rule_aggregate_decision":  rule_decision.value,
+                "ingested_at":              record.ingested_at.isoformat(),
             }, default=str, indent=2)
 
-            response = self._llm_client.messages.create(
-                model="claude-opus-4-5",
+            response = self._llm_client.chat.completions.create(
+                model=self._model,
                 max_tokens=512,
-                system=LLM_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_message}],
+                temperature=0.1,   # low temp for consistent, deterministic compliance output
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": LLM_SYSTEM_PROMPT},
+                    {"role": "user",   "content": user_message},
+                ],
             )
 
-            raw_response = response.content[0].text
+            raw_response = response.choices[0].message.content
             parsed = json.loads(raw_response)
 
             return LLMAnalysis(
-                model="claude-opus-4-5",
+                model=self._model,
                 prompt_version=LLM_PROMPT_VERSION,
                 risk_score=RiskScore(parsed["risk_score"]),
                 confidence=float(parsed.get("confidence", 0.8)),
                 flags=parsed.get("flags", []),
                 narrative=parsed.get("narrative", ""),
-                raw_response=raw_response,
+                raw_response=raw_response,   # verbatim — never truncated
             )
 
         except Exception as exc:
-            logger.error(f"[ScreeningAgent] LLM analysis failed: {exc}")
+            logger.error("[ScreeningAgent] LLM analysis failed: %s", exc)
             return None
+
+    # ------------------------------------------------------------------
+    # Private: decision aggregation
+    # ------------------------------------------------------------------
 
     def _aggregate_final(
         self,
@@ -267,70 +293,83 @@ class ScreeningAgent:
     ):
         """
         Combine rule-based and LLM decisions.
-        Escalation logic: take the more severe of the two assessments.
+
+        Escalation-only logic:
+          - LLM can upgrade a FLAG → BLOCK if it scores HIGH/CRITICAL
+          - LLM cannot downgrade a BLOCK to PASS or FLAG
+          - Rules always win on BLOCK (regulatory requirement)
         """
-        final_risk = rule_risk
-        final_decision = rule_decision
-        rationale_parts = []
+        RISK_ORDER  = [RiskScore.LOW, RiskScore.MEDIUM, RiskScore.HIGH, RiskScore.CRITICAL]
+        RISK_TO_DEC = {
+            RiskScore.LOW:      ScreeningRuleResult.PASS,
+            RiskScore.MEDIUM:   ScreeningRuleResult.FLAG,
+            RiskScore.HIGH:     ScreeningRuleResult.BLOCK,
+            RiskScore.CRITICAL: ScreeningRuleResult.BLOCK,
+        }
 
-        triggered_rules = [r for r in rule_results if r.result != ScreeningRuleResult.PASS]
-        if triggered_rules:
-            rationale_parts.append(
-                f"Rules triggered: {', '.join(r.rule_name for r in triggered_rules)}."
-            )
-        else:
-            rationale_parts.append("All rule checks passed.")
+        triggered = [r for r in rule_results if r.result != ScreeningRuleResult.PASS]
+        rule_rationale = (
+            "; ".join(f"[{r.rule_id}] {r.detail}" for r in triggered)
+            if triggered else "All rule checks passed."
+        )
 
-        if llm_analysis:
-            llm_risk_order = [RiskScore.LOW, RiskScore.MEDIUM, RiskScore.HIGH, RiskScore.CRITICAL]
-            rule_idx = llm_risk_order.index(rule_risk)
-            llm_idx = llm_risk_order.index(llm_analysis.risk_score)
+        if not llm_analysis:
+            return rule_risk, rule_decision, f"Rule-based: {rule_rationale}"
 
-            if llm_idx > rule_idx:
-                # LLM sees higher risk — escalate
-                final_risk = llm_analysis.risk_score
-                if final_risk in (RiskScore.HIGH, RiskScore.CRITICAL):
-                    final_decision = ScreeningRuleResult.BLOCK
-                elif final_risk == RiskScore.MEDIUM:
-                    final_decision = ScreeningRuleResult.FLAG
-                rationale_parts.append(
-                    f"LLM escalated risk to {final_risk.value} "
-                    f"(confidence={llm_analysis.confidence:.0%}): {llm_analysis.narrative}"
-                )
-            else:
-                rationale_parts.append(
-                    f"LLM concurred with rule assessment: {llm_analysis.narrative}"
-                )
+        # Take the more severe of rule vs LLM risk
+        llm_risk_idx  = RISK_ORDER.index(llm_analysis.risk_score)
+        rule_risk_idx = RISK_ORDER.index(rule_risk)
+        final_risk    = RISK_ORDER[max(llm_risk_idx, rule_risk_idx)]
+        final_decision = RISK_TO_DEC[final_risk]
 
-            if llm_analysis.flags:
-                rationale_parts.append(f"LLM flags: {', '.join(llm_analysis.flags)}.")
+        # Rules always enforce BLOCK — LLM cannot reduce a rule BLOCK
+        if rule_decision == ScreeningRuleResult.BLOCK:
+            final_decision = ScreeningRuleResult.BLOCK
+            final_risk     = RISK_ORDER[max(RISK_ORDER.index(RiskScore.HIGH), llm_risk_idx)]
 
-        return final_risk, final_decision, " ".join(rationale_parts)
+        flags_str = ", ".join(llm_analysis.flags) if llm_analysis.flags else "none"
+        rationale = (
+            f"Rules: {rule_rationale} | "
+            f"LLM ({self._model} v{LLM_PROMPT_VERSION}): "
+            f"risk={llm_analysis.risk_score.value} confidence={llm_analysis.confidence:.2f} "
+            f"flags=[{flags_str}] | "
+            f"Narrative: {llm_analysis.narrative}"
+        )
+
+        return final_risk, final_decision, rationale
+
+    # ------------------------------------------------------------------
+    # Private: watchlist + persistence helpers
+    # ------------------------------------------------------------------
 
     def _get_active_watchlist_id(self) -> str:
-        """Resolve the most recent active watchlist version for OFAC_SDN."""
-        wl = self._ingestion_agent.get_active_watchlist("OFAC_SDN")
-        if wl:
-            return wl.watchlist_version_id
-        # Fallback: create a placeholder version to maintain traceability
-        logger.warning(
-            "[ScreeningAgent] No OFAC_SDN watchlist found — using placeholder version."
+        """Return the most recently loaded OFAC_SDN watchlist version ID."""
+        rows = fetch_rows(
+            "watchlist_versions",
+            where="list_name = ?",
+            params=["OFAC_SDN"],
+            order_by="loaded_at DESC",
+            limit=1,
         )
-        return "wl-no-list-loaded"
+        if rows:
+            return rows[0]["watchlist_version_id"]
+        logger.warning("[ScreeningAgent] No OFAC_SDN watchlist found — using placeholder version.")
+        return "wl-placeholder-no-list-loaded"
 
     def _persist(self, result: ScreeningResult) -> None:
-        insert_row("screening_results", {
-            "screening_id":         result.screening_id,
-            "record_id":            result.record_id,
-            "watchlist_version_id": result.watchlist_version_id,
-            "screened_at":          result.screened_at.isoformat(),
-            "rule_results":         json.dumps(
-                [r.model_dump() for r in result.rule_results], default=str
-            ),
-            "llm_analysis":         json.dumps(
-                result.llm_analysis.model_dump(), default=str
-            ) if result.llm_analysis else None,
-            "final_risk_score":     result.final_risk_score.value,
-            "final_decision":       result.final_decision.value,
-            "decision_rationale":   result.decision_rationale,
-        })
+        """Persist screening result to the screening_results table."""
+        insert_row(
+            "screening_results",
+            {
+                "screening_id":         result.screening_id,
+                "record_id":            result.record_id,
+                "watchlist_version_id": result.watchlist_version_id,
+                "screened_at":          result.screened_at.isoformat(),
+                "final_risk_score":     result.final_risk_score.value,
+                "final_decision":       result.final_decision.value,
+                "decision_rationale":   result.decision_rationale,
+                "llm_model":            result.llm_analysis.model if result.llm_analysis else None,
+                "llm_prompt_version":   result.llm_analysis.prompt_version if result.llm_analysis else None,
+                "has_llm_analysis":     1 if result.llm_analysis else 0,
+            },
+        )

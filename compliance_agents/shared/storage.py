@@ -93,6 +93,9 @@ def init_db(path: Path = DB_PATH) -> None:
                 screened_at             TEXT NOT NULL,
                 rule_results            TEXT NOT NULL,   -- JSON array
                 llm_analysis            TEXT,            -- JSON or NULL
+                llm_model               TEXT,            -- model name for transparency
+                llm_prompt_version      TEXT,            -- prompt version for traceability
+                has_llm_analysis        INTEGER DEFAULT 0,
                 final_risk_score        TEXT NOT NULL,
                 final_decision          TEXT NOT NULL,
                 decision_rationale      TEXT NOT NULL,
@@ -101,6 +104,16 @@ def init_db(path: Path = DB_PATH) -> None:
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS idx_scr_record ON screening_results(record_id)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_scr_risk ON screening_results(final_risk_score)")
+        # Migration: add new columns to existing DBs (safe no-op if already present)
+        for col, typedef in [
+            ("llm_model",          "TEXT"),
+            ("llm_prompt_version", "TEXT"),
+            ("has_llm_analysis",   "INTEGER DEFAULT 0"),
+        ]:
+            try:
+                cur.execute(f"ALTER TABLE screening_results ADD COLUMN {col} {typedef}")
+            except Exception:
+                pass  # column already exists
 
         # ── Audit log — APPEND ONLY ─────────────────────────────────────
         cur.execute("""
