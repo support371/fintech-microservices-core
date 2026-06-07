@@ -1,23 +1,25 @@
 """
-Agent 2: ScreeningAgent (with LLM integration)
-================================================
+Agent 2: ScreeningAgent (multi-provider LLM cascade)
+=====================================================
 Combines rule-based screening with LLM analysis to produce a final risk
 score and decision for each IngestedRecord.
 
-LLM provider cascade (tried in order):
-  1. OpenAI  — primary  (OPENAI_API_KEY)
-  2. Groq    — fallback (GROQ_API_KEY) — free tier, llama-3.3-70b-versatile
-  3. None    — rule-only mode (always works)
+LLM provider cascade (tried in order, first success wins):
+  1. OpenAI   — primary   (OPENAI_API_KEY)   gpt-4o
+  2. Groq     — fallback  (GROQ_API_KEY)     llama-3.3-70b-versatile  [free tier]
+  3. Mistral  — fallback  (MISTRAL_API_KEY)  mistral-small-latest     [free tier]
+  4. None     — rule-only mode (always works, no key required)
 
-Pipeline:
-  IngestedRecord → Rule Engine (7 rules) → LLM analysis (best available)
-                → aggregate decision → ScreeningResult
+All three providers are called via the OpenAI-compatible chat.completions
+interface — no extra SDKs beyond `openai` and `groq`.
 
 Environment:
-  OPENAI_API_KEY       — OpenAI key (optional, used first)
-  OPENAI_MODEL         — model override (default: gpt-4o)
-  GROQ_API_KEY         — Groq key (optional, fallback)
-  GROQ_MODEL           — model override (default: llama-3.3-70b-versatile)
+  OPENAI_API_KEY       — OpenAI key  (optional)
+  OPENAI_MODEL         — override    (default: gpt-4o)
+  GROQ_API_KEY         — Groq key    (optional)
+  GROQ_MODEL           — override    (default: llama-3.3-70b-versatile)
+  MISTRAL_API_KEY      — Mistral key (optional)
+  MISTRAL_MODEL        — override    (default: mistral-small-latest)
 """
 
 from __future__ import annotations
@@ -25,18 +27,15 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from compliance_agents.data_ingestion.agent import DataIngestionAgent
 from compliance_agents.shared.models import (
-    AuditEventType,
     IngestedRecord,
     LLMAnalysis,
     RiskScore,
     ScreeningResult,
     ScreeningRuleResult,
-    WatchlistVersion,
 )
 from compliance_agents.shared.storage import fetch_rows, init_db, insert_row
 from compliance_agents.screening.rules import RuleEngine
@@ -53,7 +52,7 @@ RULE_DECISION_TO_RISK: Dict[ScreeningRuleResult, RiskScore] = {
     ScreeningRuleResult.BLOCK: RiskScore.HIGH,
 }
 
-LLM_PROMPT_VERSION = "v2.1.0"   # multi-provider cascade
+LLM_PROMPT_VERSION = "v3.0.0"   # triple-provider cascade
 
 LLM_SYSTEM_PROMPT = """You are a senior AML (Anti-Money Laundering) compliance analyst \
 for the Nexus fintech platform. Your job is to review financial transaction data and \
@@ -77,20 +76,26 @@ Common flags: structuring, velocity_spike, geographic_risk, watchlist_proximity,
 kyc_mismatch, round_amount_pattern, unusual_hours, beneficiary_risk, layering_pattern, smurfing
 
 Be concise. The narrative will appear in regulatory audit trails and SAR filings.
-Return ONLY the JSON object — no markdown, no explanation."""
+Return ONLY the JSON object — no markdown fences, no explanation outside the JSON."""
 
+
+# ---------------------------------------------------------------------------
+# Provider registry
+# ---------------------------------------------------------------------------
 
 def _build_llm_clients() -> List[Tuple[str, Any, str]]:
     """
-    Return a list of (provider_label, client, model) tuples in cascade order.
+    Return (provider_label, client, model) tuples in cascade order.
     Only providers with API keys present are included.
+    Uses the OpenAI-compatible client for all providers.
     """
+    from openai import OpenAI
+
     providers = []
 
     openai_key = os.environ.get("OPENAI_API_KEY")
     if openai_key:
         try:
-            from openai import OpenAI
             client = OpenAI(api_key=openai_key)
             model  = os.environ.get("OPENAI_MODEL", "gpt-4o")
             providers.append(("openai", client, model))
@@ -107,16 +112,32 @@ def _build_llm_clients() -> List[Tuple[str, Any, str]]:
         except Exception as e:
             logger.warning("[ScreeningAgent] Groq init failed: %s", e)
 
+    mistral_key = os.environ.get("MISTRAL_API_KEY")
+    if mistral_key:
+        try:
+            # Mistral exposes an OpenAI-compatible REST endpoint
+            client = OpenAI(
+                api_key=mistral_key,
+                base_url="https://api.mistral.ai/v1",
+            )
+            model  = os.environ.get("MISTRAL_MODEL", "mistral-small-latest")
+            providers.append(("mistral", client, model))
+        except Exception as e:
+            logger.warning("[ScreeningAgent] Mistral init failed: %s", e)
+
     return providers
 
 
+# ---------------------------------------------------------------------------
+# ScreeningAgent
+# ---------------------------------------------------------------------------
+
 class ScreeningAgent:
     """
-    Modular screening system: rule engine + multi-provider LLM cascade.
+    Modular screening: rule engine + triple-provider LLM cascade.
 
-    Usage:
-        agent = ScreeningAgent()
-        result = agent.screen(record, watchlist_version_id="wl-abc123")
+    Cascade order: OpenAI → Groq → Mistral → rule-only
+    First provider that responds successfully wins.
     """
 
     AGENT_NAME = "ScreeningAgent"
@@ -128,17 +149,16 @@ class ScreeningAgent:
         self._providers = _build_llm_clients()
 
         if self._providers:
-            labels = [f"{p} ({m})" for p, _, m in self._providers]
+            labels = " → ".join(f"{p}({m})" for p, _, m in self._providers)
             logger.info(
-                "[ScreeningAgent] LLM cascade: %s | prompt_version=%s",
-                " → ".join(labels), LLM_PROMPT_VERSION,
+                "[ScreeningAgent] LLM cascade: %s | prompt=%s",
+                labels, LLM_PROMPT_VERSION,
             )
         else:
             logger.warning(
                 "[ScreeningAgent] No LLM keys found — rule-only mode. "
-                "Set OPENAI_API_KEY or GROQ_API_KEY to enable LLM analysis."
+                "Set OPENAI_API_KEY, GROQ_API_KEY, or MISTRAL_API_KEY."
             )
-
         logger.info("[ScreeningAgent] Initialised.")
 
     # ------------------------------------------------------------------
@@ -152,22 +172,11 @@ class ScreeningAgent:
         watchlist_entries: Optional[List[str]] = None,
         force_llm: bool = False,
     ) -> ScreeningResult:
-        """
-        Screen a single IngestedRecord.
-
-        Args:
-            record:               Normalised record from DataIngestionAgent.
-            watchlist_version_id: Watchlist to reference (falls back to latest OFAC_SDN).
-            watchlist_entries:    Names from the active watchlist.
-            force_llm:            Always run LLM even for clean PASS decisions.
-
-        Returns:
-            ScreeningResult with full rule + LLM context.
-        """
+        """Screen a single IngestedRecord through rules then LLM cascade."""
         wl_version_id = watchlist_version_id or self._get_active_watchlist_id()
         user_id = record.payload.get("user_id")
 
-        # ── Step 1: Rule-based screening ─────────────────────────────────
+        # ── Step 1: Rules ─────────────────────────────────────────────
         rule_results = self._rule_engine.evaluate(
             payload=record.payload,
             user_id=user_id,
@@ -181,7 +190,7 @@ class ScreeningAgent:
             record.record_id, rule_decision.value, rule_risk.value,
         )
 
-        # ── Step 2: LLM analysis (cascade) ───────────────────────────────
+        # ── Step 2: LLM cascade ───────────────────────────────────────
         should_run_llm = (
             force_llm
             or rule_decision != ScreeningRuleResult.PASS
@@ -192,7 +201,7 @@ class ScreeningAgent:
         if should_run_llm and self._providers:
             llm_analysis = self._run_llm_cascade(record, rule_results, rule_decision)
 
-        # ── Step 3: Aggregate final decision ─────────────────────────────
+        # ── Step 3: Aggregate ─────────────────────────────────────────
         final_risk, final_decision, rationale = self._aggregate_final(
             rule_decision, rule_risk, llm_analysis, rule_results
         )
@@ -210,11 +219,10 @@ class ScreeningAgent:
         self._persist(result)
 
         logger.info(
-            "[ScreeningAgent] Complete: screening_id=%s final=%s risk=%s wl=%s llm=%s",
+            "[ScreeningAgent] Done: id=%s decision=%s risk=%s llm=%s",
             result.screening_id, final_decision.value, final_risk.value,
-            wl_version_id, llm_analysis.model if llm_analysis else "none",
+            llm_analysis.model if llm_analysis else "rule-only",
         )
-
         return result
 
     def screen_batch(
@@ -224,21 +232,13 @@ class ScreeningAgent:
         watchlist_entries: Optional[List[str]] = None,
     ) -> List[ScreeningResult]:
         """Screen a list of records, skipping duplicates."""
-        results = []
-        for record in records:
-            if record.is_duplicate:
-                logger.debug("[ScreeningAgent] Skipping duplicate record=%s", record.record_id)
-                continue
-            result = self.screen(
-                record,
-                watchlist_version_id=watchlist_version_id,
-                watchlist_entries=watchlist_entries,
-            )
-            results.append(result)
-        return results
+        return [
+            self.screen(r, watchlist_version_id, watchlist_entries)
+            for r in records if not r.is_duplicate
+        ]
 
     # ------------------------------------------------------------------
-    # Private: multi-provider LLM cascade
+    # Private: cascade
     # ------------------------------------------------------------------
 
     def _run_llm_cascade(
@@ -247,10 +247,7 @@ class ScreeningAgent:
         rule_results: List,
         rule_decision: ScreeningRuleResult,
     ) -> Optional[LLMAnalysis]:
-        """
-        Try each LLM provider in order. Returns the first successful result.
-        Logs the provider used and why others were skipped.
-        """
+        """Try each provider in order; return first success."""
         user_message = json.dumps({
             "transaction_data":        record.payload,
             "stream_type":             record.stream_type.value,
@@ -272,10 +269,10 @@ class ScreeningAgent:
             if result is not None:
                 return result
             logger.warning(
-                "[ScreeningAgent] Provider '%s' failed — trying next in cascade.", provider_label
+                "[ScreeningAgent] '%s' unavailable — trying next provider.", provider_label
             )
 
-        logger.error("[ScreeningAgent] All LLM providers exhausted — falling back to rule-only.")
+        logger.error("[ScreeningAgent] All LLM providers exhausted — rule-only mode.")
         return None
 
     def _call_provider(
@@ -285,9 +282,8 @@ class ScreeningAgent:
         model: str,
         user_message: str,
     ) -> Optional[LLMAnalysis]:
-        """Call one LLM provider and parse the response. Returns None on any failure."""
+        """Call one provider and parse the JSON response. Returns None on failure."""
         try:
-            # Both OpenAI and Groq share the same chat.completions.create interface
             kwargs: Dict[str, Any] = dict(
                 model=model,
                 max_tokens=512,
@@ -297,17 +293,18 @@ class ScreeningAgent:
                     {"role": "user",   "content": user_message},
                 ],
             )
-            # OpenAI supports response_format; Groq does not (uses JSON mode differently)
+            # OpenAI supports native JSON mode; Groq & Mistral handle it via prompt
             if provider_label == "openai":
                 kwargs["response_format"] = {"type": "json_object"}
 
             response     = client.chat.completions.create(**kwargs)
             raw_response = response.choices[0].message.content
 
-            # Strip any accidental markdown fences from models that ignore the instruction
+            # Strip accidental markdown fences
             clean = raw_response.strip()
             if clean.startswith("```"):
-                clean = clean.split("```")[1]
+                parts = clean.split("```")
+                clean = parts[1] if len(parts) > 1 else clean
                 if clean.startswith("json"):
                     clean = clean[4:]
                 clean = clean.strip()
@@ -315,7 +312,7 @@ class ScreeningAgent:
             parsed = json.loads(clean)
 
             logger.info(
-                "[ScreeningAgent] LLM success — provider=%s model=%s risk=%s confidence=%.2f",
+                "[ScreeningAgent] LLM ✓ provider=%s model=%s risk=%s confidence=%.2f",
                 provider_label, model,
                 parsed.get("risk_score"), parsed.get("confidence", 0.0),
             )
@@ -327,17 +324,15 @@ class ScreeningAgent:
                 confidence=float(parsed.get("confidence", 0.8)),
                 flags=parsed.get("flags", []),
                 narrative=parsed.get("narrative", ""),
-                raw_response=raw_response,   # verbatim — never truncated (GAO-AI-TR.04)
+                raw_response=raw_response,  # verbatim — GAO-AI-TR.04
             )
 
         except Exception as exc:
-            logger.error(
-                "[ScreeningAgent] Provider '%s' error: %s", provider_label, exc
-            )
+            logger.error("[ScreeningAgent] '%s' error: %s", provider_label, exc)
             return None
 
     # ------------------------------------------------------------------
-    # Private: decision aggregation
+    # Private: aggregation
     # ------------------------------------------------------------------
 
     def _aggregate_final(
@@ -348,10 +343,7 @@ class ScreeningAgent:
         rule_results: List,
     ) -> Tuple[RiskScore, ScreeningRuleResult, str]:
         """
-        Escalation-only logic:
-          - LLM can upgrade FLAG → BLOCK if it scores HIGH/CRITICAL
-          - LLM cannot downgrade a rule BLOCK (regulatory requirement)
-          - Rules always enforce BLOCK
+        Escalation-only: LLM can upgrade risk, never downgrade a rule BLOCK.
         """
         RISK_ORDER  = [RiskScore.LOW, RiskScore.MEDIUM, RiskScore.HIGH, RiskScore.CRITICAL]
         RISK_TO_DEC = {
@@ -361,7 +353,7 @@ class ScreeningAgent:
             RiskScore.CRITICAL: ScreeningRuleResult.BLOCK,
         }
 
-        triggered = [r for r in rule_results if r.result != ScreeningRuleResult.PASS]
+        triggered      = [r for r in rule_results if r.result != ScreeningRuleResult.PASS]
         rule_rationale = (
             "; ".join(f"[{r.rule_id}] {r.detail}" for r in triggered)
             if triggered else "All rule checks passed."
@@ -370,29 +362,27 @@ class ScreeningAgent:
         if not llm_analysis:
             return rule_risk, rule_decision, f"Rule-based: {rule_rationale}"
 
-        llm_risk_idx  = RISK_ORDER.index(llm_analysis.risk_score)
-        rule_risk_idx = RISK_ORDER.index(rule_risk)
-        final_risk    = RISK_ORDER[max(llm_risk_idx, rule_risk_idx)]
+        llm_idx  = RISK_ORDER.index(llm_analysis.risk_score)
+        rule_idx = RISK_ORDER.index(rule_risk)
+        final_risk     = RISK_ORDER[max(llm_idx, rule_idx)]
         final_decision = RISK_TO_DEC[final_risk]
 
-        # Rules always enforce BLOCK — LLM cannot reduce it
+        # Rules always enforce BLOCK
         if rule_decision == ScreeningRuleResult.BLOCK:
             final_decision = ScreeningRuleResult.BLOCK
-            final_risk     = RISK_ORDER[max(RISK_ORDER.index(RiskScore.HIGH), llm_risk_idx)]
+            final_risk     = RISK_ORDER[max(RISK_ORDER.index(RiskScore.HIGH), llm_idx)]
 
-        flags_str = ", ".join(llm_analysis.flags) if llm_analysis.flags else "none"
-        rationale = (
+        flags_str  = ", ".join(llm_analysis.flags) if llm_analysis.flags else "none"
+        rationale  = (
             f"Rules: {rule_rationale} | "
-            f"LLM ({llm_analysis.model} v{LLM_PROMPT_VERSION}): "
-            f"risk={llm_analysis.risk_score.value} confidence={llm_analysis.confidence:.2f} "
-            f"flags=[{flags_str}] | "
-            f"Narrative: {llm_analysis.narrative}"
+            f"LLM ({llm_analysis.model} prompt={LLM_PROMPT_VERSION}): "
+            f"risk={llm_analysis.risk_score.value} conf={llm_analysis.confidence:.2f} "
+            f"flags=[{flags_str}] | {llm_analysis.narrative}"
         )
-
         return final_risk, final_decision, rationale
 
     # ------------------------------------------------------------------
-    # Private: watchlist + persistence
+    # Private: helpers
     # ------------------------------------------------------------------
 
     def _get_active_watchlist_id(self) -> str:
