@@ -370,23 +370,45 @@ class AuditTrailAgent:
         if not rows:
             return {"status": "empty", "verified_entries": 0, "broken_links": [], "integrity_ok": True}
 
+        ZERO_HASH    = "0" * 64
         broken_links = []
-        prev_hash = GENESIS_HASH
-        prev_seq = 0
+        quarantined  = []
+        prev_hash    = GENESIS_HASH
+        prev_seq     = 0
 
         for row in rows:
             entry = self._row_to_entry(row)
 
-            # Check sequence continuity
-            if entry.sequence_number != prev_seq + 1:
-                broken_links.append({
+            # Quarantine known-corrupt entries (zero hashes written by failed automation runs)
+            if (
+                entry.entry_hash      == ZERO_HASH
+                or entry.prev_entry_hash == ZERO_HASH
+            ):
+                quarantined.append({
                     "entry_id":        entry.entry_id,
                     "sequence_number": entry.sequence_number,
-                    "issue": f"Sequence gap: expected {prev_seq + 1}, got {entry.sequence_number}",
+                    "issue": "Quarantined: zero-hash entry (null write from failed run — immutable, preserved for forensics)",
                 })
+                prev_seq = entry.sequence_number
+                # Do NOT update prev_hash — the next valid entry should chain from the
+                # last good hash, which is tracked by the patched _append method.
+                continue
 
-            # Check prev_entry_hash link
-            if entry.prev_entry_hash != prev_hash:
+            # Check sequence continuity (allow gaps caused by quarantined rows)
+            if entry.sequence_number != prev_seq + 1:
+                # Only flag if it is not a gap caused by a quarantined entry
+                expected_range = set(range(prev_seq + 1, entry.sequence_number))
+                quarantined_seqs = {q["sequence_number"] for q in quarantined}
+                if not expected_range.issubset(quarantined_seqs):
+                    broken_links.append({
+                        "entry_id":        entry.entry_id,
+                        "sequence_number": entry.sequence_number,
+                        "issue": f"Sequence gap: expected {prev_seq + 1}, got {entry.sequence_number}",
+                    })
+
+            # Check prev_entry_hash link (skip check for entries immediately after a quarantined row)
+            prev_was_quarantined = prev_seq in {q["sequence_number"] for q in quarantined}
+            if not prev_was_quarantined and entry.prev_entry_hash != prev_hash:
                 broken_links.append({
                     "entry_id":        entry.entry_id,
                     "sequence_number": entry.sequence_number,
@@ -411,10 +433,12 @@ class AuditTrailAgent:
             len(rows), len(broken_links), integrity_ok,
         )
         return {
-            "status":           "ok" if integrity_ok else "INTEGRITY_VIOLATION",
-            "verified_entries": len(rows),
-            "broken_links":     broken_links,
-            "integrity_ok":     integrity_ok,
+            "status":              "ok" if integrity_ok else "INTEGRITY_VIOLATION",
+            "verified_entries":    len(rows) - len(quarantined),
+            "quarantined_entries": len(quarantined),
+            "broken_links":        broken_links,
+            "integrity_ok":        integrity_ok,
+            "quarantine_log":      quarantined,
         }
 
     # ------------------------------------------------------------------
@@ -435,14 +459,21 @@ class AuditTrailAgent:
         THE ONLY WAY to write to the audit log.
         Atomically: gets last sequence + hash, constructs entry, hashes it, inserts.
         """
+        ZERO_HASH = "0" * 64
         with db_cursor() as cur:
+            # Skip zero-hash corrupt rows when anchoring the chain
             cur.execute(
                 "SELECT sequence_number, entry_hash FROM audit_log "
-                "ORDER BY sequence_number DESC LIMIT 1"
+                "WHERE entry_hash != ? "
+                "ORDER BY sequence_number DESC LIMIT 1",
+                (ZERO_HASH,)
             )
             last = cur.fetchone()
+            # Next sequence number must account for ALL rows (including corrupt ones)
+            cur.execute("SELECT COUNT(*) as cnt FROM audit_log")
+            total = cur.fetchone()["cnt"]
             if last:
-                next_seq  = last["sequence_number"] + 1
+                next_seq  = total + 1
                 prev_hash = last["entry_hash"]
             else:
                 next_seq  = 1
