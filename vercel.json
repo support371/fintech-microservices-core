@@ -2,48 +2,38 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/converter_service/main.py",
-      "use": "@vercel/python",
-      "config": { "maxLambdaSize": "15mb" }
+      "src": "api/index.py",
+      "use": "@vercel/python"
     },
     {
-      "src": "api/card_platform_service/main.py",
-      "use": "@vercel/python",
-      "config": { "maxLambdaSize": "15mb" }
+      "src": "api/card_service.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "api/converter_service.py",
+      "use": "@vercel/python"
     }
   ],
   "routes": [
     {
-      "src": "/api/converter/(.*)",
-      "dest": "/api/converter_service/main.py"
+      "src": "/api/v1/(.*)",
+      "dest": "/api/card_service.py"
     },
     {
-      "src": "/api/platform/(.*)",
-      "dest": "/api/card_platform_service/main.py"
-      "src": "api/*.py",
-      "use": "@vercel/python"
-    }
-  ],
-  "rewrites": [
-    {
-      "source": "/api/v1/(.*)",
-      "destination": "/api/card_service.py"
+      "src": "/webhook/(.*)",
+      "dest": "/api/converter_service.py"
     },
     {
-      "source": "/webhook/(.*)",
-      "destination": "/api/converter_service.py"
+      "src": "/internal/(.*)",
+      "dest": "/api/converter_service.py"
     },
     {
-      "source": "/internal/(.*)",
-      "destination": "/api/converter_service.py"
+      "src": "/health",
+      "dest": "/api/index.py"
     },
     {
-      "source": "/health",
-      "destination": "/api/index.py"
-    },
-    {
-      "source": "/",
-      "destination": "/api/index.py"
+      "src": "/",
+      "dest": "/api/index.py"
     }
   ]
 }

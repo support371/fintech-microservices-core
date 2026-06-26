@@ -1,56 +1,81 @@
-# fintech-microservices-core
+# Nexus Fintech Microservices Core
 
-Microservices Core for Alliance Trust Realty's Crypto Debit Card Platform. Features a secure, HMAC-validated Fiat-to-Bitcoin converter and the client-facing card management API.
+Secure backend foundation for Alliance Trust Realty's Nexus Bitcoin banking platform.
 
-## Vercel Deployment (API Gateway)
+## Current operating state
 
-This repository now includes a root-level `vercel.json` that maps paths to the two FastAPI services:
+- Fiat-to-BTC conversion: **sandbox only**
+- Card issuance: **sandbox only**
+- Live payments: disabled unless explicitly approved and implemented through a verified provider adapter
+- Live card issuance: disabled unless explicitly approved and implemented through a verified provider adapter
+- KYC: Tier 3 or higher is required for card issuance and fund loading
+- Internal service traffic: HMAC-SHA256 authenticated with timestamp replay protection
+- Transaction processing: idempotent, with PostgreSQL required in production
 
-- `/api/v1/*` -> `card_platform_service`
-- `/webhook/*` and `/internal/*` -> `converter_service`
-- `/` and `/health` -> lightweight health app (`api/index.py`)
+## Services
 
-If your Vercel deployment previously returned `404: NOT_FOUND`, redeploy from the repository root so Vercel picks up this configuration.
+### Card platform
 
-## Nexus Prototype
+- `POST /api/v1/cards/issue`
+- `POST /api/v1/funds/load`
+- `GET /health`
+- `GET /ready`
 
-An interactive HTML demo of the Nexus platform dashboard is available at:
+### Fiat-to-BTC converter
 
-- `prototype/nexus-demo.html` — Simulates card issuance, fund loading, compliance checks, and displays system status for all agents.
+- `POST /internal/transfer_funds`
+- `POST /webhook/fiat_received`
+- `GET /health`
+- `GET /ready`
 
-## Foundry — Agent Definitions & Schemas
+### Gateway health
 
-The `foundry/` directory contains the agent specifications, configuration schemas, and workflow definitions for the Nexus platform's AI-powered agent layer.
+- `GET /`
+- `GET /health`
 
-### Agents (`foundry/agents/`)
+## Local setup
 
-| Agent | Description |
-|-------|-------------|
-| [ComplianceAgent](foundry/agents/ComplianceAgent.md) | Enforces KYC/AML regulatory requirements |
-| [SecurityAgent](foundry/agents/SecurityAgent.md) | Validates HMAC signatures, rate limiting, anomaly detection |
-| [LedgerAgent](foundry/agents/LedgerAgent.md) | Maintains immutable append-only event ledger |
-| [PlatformAgent](foundry/agents/PlatformAgent.md) | Orchestrates workflows, health monitoring, deployments |
-| [BuildAgent](foundry/agents/BuildAgent.md) | Manages CI/CD pipeline and locked-build enforcement |
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-dev.txt
+cp .env.example .env
+pytest -q
+```
 
-### Schemas (`foundry/schemas/`)
+Apply the PostgreSQL schema before production-style testing:
 
-| Schema | Description |
-|--------|-------------|
-| [compliance.schema.json](foundry/schemas/compliance.schema.json) | KYC tier rules, AML thresholds, reporting config |
-| [security.schema.json](foundry/schemas/security.schema.json) | HMAC settings, rate limits, anomaly thresholds |
-| [ledger.schema.json](foundry/schemas/ledger.schema.json) | Ledger event entry format and retention policies |
-| [platform.schema.json](foundry/schemas/platform.schema.json) | Service registry, workflow settings, retry policies |
-| [build.schema.json](foundry/schemas/build.schema.json) | CI pipeline, artifact config, promotion policies |
+```bash
+psql "$DATABASE_URL" -f migrations/001_core_schema.sql
+```
 
-### Workflows (`foundry/workflows/`)
+Never commit real secrets. Store `INTERNAL_SERVICE_SECRET`, database credentials, webhook secrets, and future provider credentials in the deployment platform's encrypted secret store.
 
-| Workflow | Description |
-|----------|-------------|
-| [nexus-locked-build.yaml](foundry/workflows/nexus-locked-build.yaml) | Gated build-and-deploy pipeline with agent validation gates |
+## Vercel deployment
 
-## Scripts
+The root `vercel.json` routes:
 
-| File | Description |
-|------|-------------|
-| [scripts/foundry/RUN_WORKFLOW.md](scripts/foundry/RUN_WORKFLOW.md) | Step-by-step guide to running the locked-build workflow |
-| [scripts/foundry/PROMPTS.md](scripts/foundry/PROMPTS.md) | LLM prompt templates for invoking each Foundry agent |
+- `/api/v1/*` to the card service
+- `/webhook/*` and `/internal/*` to the converter service
+- `/` and `/health` to the gateway health app
+
+Deploy from the repository root so Vercel discovers the Python entrypoints under `api/`.
+
+## Nexus prototype and Foundry
+
+- `prototype/nexus-demo.html` provides the existing interactive dashboard demonstration.
+- `foundry/agents/` contains Compliance, Security, Ledger, Platform, and Build agent specifications.
+- `foundry/schemas/` contains the policy schemas.
+- `foundry/workflows/nexus-locked-build.yaml` contains the gated workflow design.
+
+## Production gate
+
+A production release is not complete until all of the following are independently verified:
+
+1. CI passes on the pull request.
+2. PostgreSQL migrations are applied and backed up.
+3. Deployment secrets are configured outside source control.
+4. Webhook signature behavior is confirmed against the chosen provider's official contract.
+5. Sandbox card and conversion flows pass end-to-end tests.
+6. Security and compliance reviewers approve the release.
+7. The owner explicitly approves any future live-provider implementation.

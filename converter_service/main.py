@@ -1,117 +1,175 @@
+"""Nexus fiat-to-BTC converter API.
+
+All money movement defaults to deterministic sandbox behavior. Internal calls
+must be signed, webhook payloads must be HMAC verified, and every transaction
+is protected by an idempotency claim.
+"""
+
+from __future__ import annotations
+
 import json
-import time
 import logging
-from fastapi import FastAPI, Request, HTTPException, Header
-from pydantic import BaseModel
+import os
+import time
+from decimal import Decimal
+from typing import Any
+from uuid import UUID
+
+from fastapi import FastAPI, Header, HTTPException, Request
+from pydantic import BaseModel, Field, ValidationError
+
+from common.security import verify_internal_request
+from .idempotency import IdempotencyStore
 from .logic import ConversionLogic
 
-# Structured JSON logging
 logging.basicConfig(
     level=logging.INFO,
-    format='{"timestamp":"%(asctime)s","service":"converter","level":"%(levelname)s","message":"%(message)s"}'
+    format='{"timestamp":"%(asctime)s","service":"converter","level":"%(levelname)s","message":"%(message)s"}',
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Fiat-to-BTC Converter Service", description="Project 1: Secure Webhook Handler.")
+app = FastAPI(
+    title="Nexus Fiat-to-BTC Converter Service",
+    description="Authenticated, idempotent, sandbox-first conversion service.",
+    version="2.0.0",
+)
 converter_logic = ConversionLogic()
+idempotency_store = IdempotencyStore()
+
+
+class InternalFundTransferRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=128)
+    fiat_amount: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
+    fiat_currency: str = Field(min_length=3, max_length=3)
+    trace_id: UUID
+
+
+class FiatReceivedWebhook(BaseModel):
+    transaction_id: str = Field(min_length=1, max_length=200)
+    amount: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
+    currency: str = Field(min_length=3, max_length=3)
+    user_id: str = Field(min_length=1, max_length=128)
+
+
+def _process_transaction(
+    transaction_key: str,
+    *,
+    amount: Decimal,
+    currency: str,
+    user_id: str,
+) -> dict[str, Any]:
+    claimed = idempotency_store.begin(transaction_key)
+    if not claimed:
+        completed = idempotency_store.get_completed_response(transaction_key)
+        if completed is not None:
+            return {"status": "success", "idempotent_replay": True, "data": completed}
+        raise HTTPException(status_code=409, detail="Transaction is already processing")
+
+    try:
+        result = converter_logic.execute_conversion_and_payout(
+            fiat_amount=amount,
+            fiat_currency=currency,
+            user_id=user_id,
+        )
+        idempotency_store.complete(transaction_key, result)
+        return {"status": "success", "idempotent_replay": False, "data": result}
+    except ValueError as exc:
+        idempotency_store.release_failed(transaction_key)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        idempotency_store.release_failed(transaction_key)
+        logger.error("Conversion configuration blocked transaction %s: %s", transaction_key, exc)
+        raise HTTPException(status_code=503, detail="Conversion service is not configured for this operation") from exc
+    except Exception as exc:
+        idempotency_store.release_failed(transaction_key)
+        logger.exception("Conversion failed for transaction %s", transaction_key)
+        raise HTTPException(status_code=500, detail="Conversion processing failed") from exc
 
 
 @app.get("/health")
-def health_check():
-    """Health check endpoint for Kubernetes probes."""
-    return {"status": "healthy", "service": "converter-service", "timestamp": time.time()}
+def health_check() -> dict[str, Any]:
+    return {
+        "status": "healthy",
+        "service": "converter-service",
+        "payment_mode": converter_logic.payments_mode,
+        "timestamp": time.time(),
+    }
 
 
 @app.get("/ready")
-def readiness_check():
-    """Readiness check endpoint."""
-    return {"status": "ready"}
+def readiness_check() -> dict[str, Any]:
+    missing: list[str] = []
+    if not os.getenv("INTERNAL_SERVICE_SECRET", "").strip():
+        missing.append("INTERNAL_SERVICE_SECRET")
+    if not converter_logic.webhook_secret:
+        missing.append("STRIGA_WEBHOOK_SECRET")
+    if os.getenv("APP_ENV", "development").lower() == "production" and not os.getenv("DATABASE_URL", "").strip():
+        missing.append("DATABASE_URL")
 
-class InternalFundTransferRequest(BaseModel):
-    user_id: str
-    fiat_amount: float
-    fiat_currency: str
-    trace_id: str
+    if missing:
+        raise HTTPException(
+            status_code=503,
+            detail={"status": "not_ready", "missing_configuration": missing},
+        )
+    return {"status": "ready", "payment_mode": converter_logic.payments_mode}
+
 
 @app.post("/internal/transfer_funds")
-async def internal_transfer_funds(request: InternalFundTransferRequest):
-    """
-    Internal endpoint to execute the conversion logic, called by the Card Platform Service.
-    """
-    trace_id = request.trace_id
-    logger.info(f"Internal fund transfer received for trace_id: {trace_id}")
+async def internal_transfer_funds(
+    request: Request,
+    x_internal_timestamp: str | None = Header(default=None, alias="X-Internal-Timestamp"),
+    x_internal_signature: str | None = Header(default=None, alias="X-Internal-Signature"),
+) -> dict[str, Any]:
+    payload_raw = await request.body()
+    secret = os.getenv("INTERNAL_SERVICE_SECRET", "").strip()
+    if not verify_internal_request(
+        secret,
+        payload_raw,
+        x_internal_timestamp,
+        x_internal_signature,
+    ):
+        raise HTTPException(status_code=401, detail="Invalid internal request signature")
 
-    # Use a combination of a prefix and trace_id for a unique, traceable transaction ID
-    transaction_id = f"internal-tx-{trace_id}"
-
-    # 2. Idempotency Check
-    if converter_logic.is_already_processed(transaction_id):
-        logger.warning(f"Transaction already processed (Idempotent success) for trace_id: {trace_id}")
-        return {"status": "success", "message": "Transaction already processed (Idempotent success)"}
-
-    # 3. Execute Conversion
     try:
-        result = converter_logic.execute_conversion_and_payout(
-            fiat_amount=request.fiat_amount,
-            fiat_currency=request.fiat_currency,
-            user_id=request.user_id
-        )
-        logger.info(f"[AUDIT LOG] Fiat-to-BTC Success: ID={transaction_id}, BTC Sent={result['btc_amount_sent']}, trace_id={trace_id}")
-        return {"status": "success", "data": result}
+        payload = InternalFundTransferRequest(**json.loads(payload_raw))
+    except (json.JSONDecodeError, UnicodeDecodeError, ValidationError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid transfer request") from exc
 
-    except Exception as e:
-        logger.critical(f"[CRITICAL ERROR] Conversion failed for TX {transaction_id} (trace_id: {trace_id}): {e}")
-        raise HTTPException(status_code=500, detail=f"Conversion processing failed: {e}")
+    trace_id = str(payload.trace_id)
+    logger.info("Authenticated internal transfer received trace_id=%s", trace_id)
+    return _process_transaction(
+        f"internal:{trace_id}",
+        amount=payload.fiat_amount,
+        currency=payload.fiat_currency,
+        user_id=payload.user_id,
+    )
+
 
 @app.post("/webhook/fiat_received")
-async def fiat_received_webhook(
-  request: Request,
-  # NOTE: Striga often uses X-Striga-Signature, adjust header name as needed.
-  x_signature: str = Header(..., alias='X-Signature')
-):
-  """
-  Receives webhook notification for fiat payment receipt, validates it, and executes conversion.
-  """
-  content_type = request.headers.get("content-type", "")
-  if "application/json" not in content_type.lower():
-    raise HTTPException(status_code=415, detail="Unsupported media type. Binary files are not supported")
+async def fiat_received_webhook(request: Request) -> dict[str, Any]:
+    content_type = request.headers.get("content-type", "")
+    if "application/json" not in content_type.lower():
+        raise HTTPException(status_code=415, detail="Content-Type must be application/json")
 
-  payload_raw = await request.body()
-  try:
-    payload = json.loads(payload_raw)
-  except (UnicodeDecodeError, json.JSONDecodeError):
-    raise HTTPException(status_code=400, detail="Invalid JSON payload. Binary files are not supported")
-
-  # 1. Signature Validation [CRITICAL SECURITY]
-  if not converter_logic.validate_webhook_signature(payload_raw, x_signature):
-    logger.warning("Invalid webhook signature received.")
-    raise HTTPException(status_code=403, detail="Invalid webhook signature")
-
-  # Extract required fields (adjust keys based on Striga payload)
-  transaction_id = payload.get("transaction_id")
-  fiat_amount = payload.get("amount")
-  fiat_currency = payload.get("currency")
-  user_id = payload.get("user_id")
-
-  if not all([transaction_id, fiat_amount, fiat_currency, user_id]):
-    raise HTTPException(status_code=400, detail="Missing required transaction data")
-
-  # 2. Idempotency Check
-  if converter_logic.is_already_processed(transaction_id):
-    logger.warning(f"Transaction {transaction_id} already processed (Idempotent success).")
-    return {"status": "success", "message": "Transaction already processed (Idempotent success)"}
-
-  # 3. Execute Conversion
-  try:
-    result = converter_logic.execute_conversion_and_payout(
-      fiat_amount=fiat_amount,
-      fiat_currency=fiat_currency,
-      user_id=user_id
+    payload_raw = await request.body()
+    signature = (
+        request.headers.get("x-striga-signature")
+        or request.headers.get("x-signature")
+        or ""
     )
-    logger.info(f"[AUDIT LOG] Fiat-to-BTC Success: ID={transaction_id}, BTC Sent={result['btc_amount_sent']}")
+    if not converter_logic.validate_webhook_signature(payload_raw, signature):
+        logger.warning("Rejected webhook with invalid signature")
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
-    return {"status": "success", "data": result}
+    try:
+        payload = FiatReceivedWebhook(**json.loads(payload_raw))
+    except (json.JSONDecodeError, UnicodeDecodeError, ValidationError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid webhook payload") from exc
 
-  except Exception as e:
-    logger.critical(f"[CRITICAL ERROR] Conversion failed for TX {transaction_id}: {e}")
-    raise HTTPException(status_code=500, detail=f"Conversion processing failed: {e}")
+    logger.info("Verified fiat webhook transaction_id=%s", payload.transaction_id)
+    return _process_transaction(
+        f"webhook:{payload.transaction_id}",
+        amount=payload.amount,
+        currency=payload.currency,
+        user_id=payload.user_id,
+    )
