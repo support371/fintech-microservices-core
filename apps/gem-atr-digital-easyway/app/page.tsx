@@ -2,14 +2,18 @@
 
 /**
  * page.tsx — Production-wired GEM ATR Dashboard.
- * All state comes from real API calls. No in-memory mocks.
+ * Auth-gated: calls /api/auth/me on load; shows login screen if unauthenticated.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { BitcoinCard, Deposit, OperationLog } from '@/src/server/operations';
 
-// ── Types ────────────────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
+type UserRole = 'user' | 'admin';
+type AuthUser = { id: string; email: string; role: UserRole };
+type Deposit = { id: string; amount: number; currency: string; status: string; createdAt: string };
+type BitcoinCard = { id: string; status: string; nickname?: string };
+type OperationLog = { id: string; operation: string; createdAt: string };
 type LedgerSnapshot = { availableUsd: number; pendingUsd: number; btcAmount: number };
 type ComplianceStatus = { satisfiedControls: number; totalControls: number; chainIntegrity: boolean; lastSweep: string };
 type AuditEntry = { sequence_number: number; event_type: string; source_agent: string; timestamp: string; chain_valid: boolean };
@@ -17,7 +21,10 @@ type AuditEntry = { sequence_number: number; event_type: string; source_agent: s
 // ── API helpers ───────────────────────────────────────────────────────────────
 
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
-  const res = await fetch(path, { ...opts, headers: { 'Content-Type': 'application/json', ...(opts?.headers ?? {}) } });
+  const res = await fetch(path, {
+    ...opts,
+    headers: { 'Content-Type': 'application/json', ...(opts?.headers ?? {}) },
+  });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error ?? `HTTP ${res.status}`);
@@ -25,16 +32,15 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-function idempotencyKey() {
-  return crypto.randomUUID();
-}
+function uid() { return crypto.randomUUID(); }
+const fmt = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function Toast({ message }: { message: string }) {
   if (!message) return null;
   return (
-    <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-slate-900 px-5 py-3 text-sm font-medium text-white shadow-xl">
+    <div className="fixed bottom-5 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-slate-900 px-6 py-3 text-sm font-medium text-white shadow-2xl">
       {message}
     </div>
   );
@@ -72,26 +78,18 @@ function Pill({ status }: { status: string }) {
   );
 }
 
-function Btn({
-  label,
-  onClick,
-  color = 'slate',
-  loading = false,
-}: {
-  label: string;
-  onClick: () => void;
-  color?: string;
-  loading?: boolean;
+function Btn({ label, onClick, color = 'slate', loading = false, full = false }: {
+  label: string; onClick: () => void; color?: string; loading?: boolean; full?: boolean;
 }) {
   const colors: Record<string, string> = {
-    slate: 'bg-slate-900 text-white hover:bg-slate-800',
-    indigo: 'bg-indigo-600 text-white hover:bg-indigo-700',
+    slate:   'bg-slate-900 text-white hover:bg-slate-800',
+    indigo:  'bg-indigo-600 text-white hover:bg-indigo-700',
     emerald: 'bg-emerald-600 text-white hover:bg-emerald-700',
-    rose: 'bg-rose-600 text-white hover:bg-rose-700',
+    rose:    'bg-rose-600   text-white hover:bg-rose-700',
   };
   return (
     <button
-      className={`rounded-lg px-4 py-2 text-sm font-medium transition disabled:opacity-50 ${colors[color] ?? colors.slate}`}
+      className={`rounded-lg px-4 py-2 text-sm font-medium transition disabled:opacity-50 ${colors[color] ?? colors.slate} ${full ? 'w-full' : ''}`}
       disabled={loading}
       onClick={onClick}
       type="button"
@@ -101,63 +99,132 @@ function Btn({
   );
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
+// ── Login Screen ──────────────────────────────────────────────────────────────
 
-export default function HomePage() {
-  const [isAdmin, setIsAdmin] = useState(false);
+function LoginScreen({ onLogin }: { onLogin: (u: AuthUser) => void }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      const data = await apiFetch<{ user: AuthUser }>('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password }),
+      });
+      onLogin(data.user);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-slate-100 p-4">
+      <form
+        onSubmit={handleSubmit}
+        className="w-full max-w-sm space-y-4 rounded-2xl bg-white p-8 shadow ring-1 ring-slate-100"
+      >
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">GEM ATR Digital</h1>
+          <p className="mt-1 text-xs text-slate-500">Sign in to your account</p>
+        </div>
+
+        {error && (
+          <div className="rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
+        )}
+
+        <div className="space-y-3">
+          <input
+            autoComplete="email"
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-400"
+            onChange={e => setEmail(e.target.value)}
+            placeholder="Email"
+            required
+            type="email"
+            value={email}
+          />
+          <input
+            autoComplete="current-password"
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-400"
+            onChange={e => setPassword(e.target.value)}
+            placeholder="Password"
+            required
+            type="password"
+            value={password}
+          />
+        </div>
+
+        <button
+          className="w-full rounded-lg bg-indigo-600 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50 transition"
+          disabled={loading}
+          type="submit"
+        >
+          {loading ? 'Signing in…' : 'Sign in'}
+        </button>
+
+        <p className="text-center text-xs text-slate-400">
+          In mock mode, any email/password is accepted.
+        </p>
+      </form>
+    </div>
+  );
+}
+
+// ── Main Dashboard ────────────────────────────────────────────────────────────
+
+function Dashboard({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
+  const isAdmin = user.role === 'admin';
   const [toast, setToast] = useState('');
   const [loading, setLoading] = useState(false);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const [deposits, setDeposits] = useState<Deposit[]>([]);
-  const [cards, setCards] = useState<BitcoinCard[]>([]);
-  const [operations, setOperations] = useState<OperationLog[]>([]);
-  const [ledger, setLedger] = useState<LedgerSnapshot>({ availableUsd: 0, pendingUsd: 0, btcAmount: 0 });
-  const [compliance, setCompliance] = useState<ComplianceStatus | null>(null);
-  const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
+  const [deposits, setDeposits]       = useState<Deposit[]>([]);
+  const [cards, setCards]             = useState<BitcoinCard[]>([]);
+  const [operations, setOperations]   = useState<OperationLog[]>([]);
+  const [ledger, setLedger]           = useState<LedgerSnapshot>({ availableUsd: 0, pendingUsd: 0, btcAmount: 0 });
+  const [compliance, setCompliance]   = useState<ComplianceStatus | null>(null);
+  const [auditLog, setAuditLog]       = useState<AuditEntry[]>([]);
   const [depositAmount, setDepositAmount] = useState('');
   const [depositCurrency, setDepositCurrency] = useState('USD');
-
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const notify = useCallback((msg: string) => {
     setToast(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(''), 2500);
+    toastTimer.current = setTimeout(() => setToast(''), 2800);
   }, []);
-
-  // ── Data fetching ────────────────────────────────────────────────────────
 
   const refreshAll = useCallback(async () => {
     try {
-      const [dep, cds, ops] = await Promise.all([
+      const [dep, cds] = await Promise.all([
         apiFetch<{ deposits: Deposit[] }>('/api/deposits'),
         apiFetch<{ cards: BitcoinCard[] }>('/api/cards'),
-        apiFetch<{ operations: OperationLog[] }>('/api/admin/operations'),
       ]);
       setDeposits(dep.deposits);
       setCards(cds.cards);
-      setOperations(ops.operations);
 
-      // Compute ledger locally from live deposit data
-      const available = dep.deposits
-        .filter((d) => d.status === 'settled')
-        .reduce((acc, d) => acc + d.amount, 0);
-      const pending = dep.deposits
-        .filter((d) => d.status !== 'settled')
-        .reduce((acc, d) => acc + d.amount, 0);
-      setLedger((prev) => ({ ...prev, availableUsd: available, pendingUsd: pending }));
+      const available = dep.deposits.filter(d => d.status === 'settled').reduce((a, d) => a + d.amount, 0);
+      const pending   = dep.deposits.filter(d => d.status !== 'settled').reduce((a, d) => a + d.amount, 0);
+      setLedger(prev => ({ ...prev, availableUsd: available, pendingUsd: pending }));
+
+      if (isAdmin) {
+        const ops = await apiFetch<{ operations: OperationLog[] }>('/api/admin/operations');
+        setOperations(ops.operations);
+      }
     } catch (err) {
       notify(err instanceof Error ? err.message : 'Failed to load data');
     }
-  }, [notify]);
+  }, [isAdmin, notify]);
 
   const refreshCompliance = useCallback(async () => {
     try {
-      const data = await apiFetch<ComplianceStatus>('/api/compliance');
-      setCompliance(data);
-    } catch {
-      // non-critical
-    }
+      setCompliance(await apiFetch<ComplianceStatus>('/api/compliance'));
+    } catch { /* non-critical */ }
   }, []);
 
   const refreshAudit = useCallback(async () => {
@@ -165,29 +232,11 @@ export default function HomePage() {
     try {
       const data = await apiFetch<{ entries: AuditEntry[] }>('/api/audit?limit=10');
       setAuditLog(data.entries ?? []);
-    } catch {
-      // non-critical
-    }
+    } catch { /* non-critical */ }
   }, [isAdmin]);
 
-  useEffect(() => {
-    void refreshAll();
-    void refreshCompliance();
-  }, [refreshAll, refreshCompliance]);
-
-  useEffect(() => {
-    void refreshAudit();
-  }, [refreshAudit]);
-
-  // Auto-refresh every 30s
-  useEffect(() => {
-    const interval = setInterval(() => {
-      void refreshAll();
-    }, 30_000);
-    return () => clearInterval(interval);
-  }, [refreshAll]);
-
-  // ── Actions ──────────────────────────────────────────────────────────────
+  useEffect(() => { void refreshAll(); void refreshCompliance(); void refreshAudit(); }, [refreshAll, refreshCompliance, refreshAudit]);
+  useEffect(() => { const id = setInterval(() => void refreshAll(), 30_000); return () => clearInterval(id); }, [refreshAll]);
 
   const handleCreateDeposit = async () => {
     const amount = parseFloat(depositAmount);
@@ -196,16 +245,13 @@ export default function HomePage() {
     try {
       await apiFetch('/api/deposits', {
         method: 'POST',
-        body: JSON.stringify({ amount, currency: depositCurrency, idempotency_key: idempotencyKey() }),
+        body: JSON.stringify({ amount, currency: depositCurrency, idempotency_key: uid() }),
       });
       setDepositAmount('');
       await refreshAll();
-      notify('Deposit created successfully.');
-    } catch (err) {
-      notify(err instanceof Error ? err.message : 'Deposit failed');
-    } finally {
-      setLoading(false);
-    }
+      notify('Deposit created.');
+    } catch (err) { notify(err instanceof Error ? err.message : 'Deposit failed'); }
+    finally { setLoading(false); }
   };
 
   const handleRequestCard = async () => {
@@ -213,19 +259,20 @@ export default function HomePage() {
     try {
       await apiFetch('/api/cards', {
         method: 'POST',
-        body: JSON.stringify({ nickname: 'GEM ATR Card', idempotency_key: idempotencyKey() }),
+        body: JSON.stringify({ nickname: 'GEM ATR Card', idempotency_key: uid() }),
       });
       await refreshAll();
-      notify('Bitcoin card requested and provisioned.');
-    } catch (err) {
-      notify(err instanceof Error ? err.message : 'Card request failed');
-    } finally {
-      setLoading(false);
-    }
+      notify('Card requested and provisioned.');
+    } catch (err) { notify(err instanceof Error ? err.message : 'Card request failed'); }
+    finally { setLoading(false); }
+  };
+
+  const handleLogout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    onLogout();
   };
 
   const latestCard = cards[0];
-  const fmt = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
   return (
     <main className="min-h-screen bg-slate-100 p-4 sm:p-8">
@@ -235,7 +282,7 @@ export default function HomePage() {
         <header className="flex items-center justify-between rounded-2xl bg-white px-6 py-4 shadow ring-1 ring-slate-100">
           <div>
             <h1 className="text-xl font-bold text-slate-900">GEM ATR Digital</h1>
-            <p className="text-xs text-slate-500">Fintech Microservices Dashboard</p>
+            <p className="text-xs text-slate-500">{user.email} · {user.role}</p>
           </div>
           <div className="flex items-center gap-3">
             {compliance && (
@@ -243,58 +290,49 @@ export default function HomePage() {
                 {compliance.satisfiedControls}/{compliance.totalControls} Controls
               </span>
             )}
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
-              <input
-                checked={isAdmin}
-                className="h-4 w-4 rounded accent-indigo-600"
-                onChange={(e) => { setIsAdmin(e.target.checked); void refreshAudit(); }}
-                type="checkbox"
-              />
-              Admin view
-            </label>
+            <button
+              onClick={() => void handleLogout()}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 transition"
+              type="button"
+            >
+              Sign out
+            </button>
           </div>
         </header>
 
-        {/* Stat row */}
+        {/* Stats */}
         <div className="grid gap-4 sm:grid-cols-3">
           <StatCard label="Available USD" value={fmt(ledger.availableUsd)} sub="Settled deposits" />
-          <StatCard label="Pending USD" value={fmt(ledger.pendingUsd)} sub="Awaiting settlement" />
-          <StatCard label="BTC Balance" value={`${ledger.btcAmount.toFixed(8)} BTC`} sub="Converted holdings" />
+          <StatCard label="Pending USD"   value={fmt(ledger.pendingUsd)}   sub="Awaiting settlement" />
+          <StatCard label="BTC Balance"   value={`${ledger.btcAmount.toFixed(8)} BTC`} sub="Converted holdings" />
         </div>
 
-        {/* Actions + Deposit Form */}
+        {/* Actions */}
         <div className="grid gap-4 lg:grid-cols-2">
-
-          {/* New deposit */}
           <section className="rounded-2xl bg-white p-5 shadow ring-1 ring-slate-100">
             <SectionHeader title="New Deposit" />
             <div className="flex gap-2">
               <input
                 className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-400"
-                onChange={(e) => setDepositAmount(e.target.value)}
+                onChange={e => setDepositAmount(e.target.value)}
                 placeholder="Amount"
                 type="number"
                 value={depositAmount}
               />
               <select
                 className="rounded-lg border border-slate-200 px-2 py-2 text-sm"
-                onChange={(e) => setDepositCurrency(e.target.value)}
+                onChange={e => setDepositCurrency(e.target.value)}
                 value={depositCurrency}
               >
-                <option>USD</option>
-                <option>EUR</option>
-                <option>GBP</option>
+                <option>USD</option><option>EUR</option><option>GBP</option>
               </select>
               <Btn color="indigo" label="Deposit" loading={loading} onClick={() => void handleCreateDeposit()} />
             </div>
           </section>
 
-          {/* Quick actions */}
           <section className="rounded-2xl bg-white p-5 shadow ring-1 ring-slate-100">
             <SectionHeader title="Card Management" />
-            <div className="flex flex-wrap gap-2">
-              <Btn label="Request Bitcoin Card" loading={loading} onClick={() => void handleRequestCard()} />
-            </div>
+            <Btn label="Request Bitcoin Card" loading={loading} onClick={() => void handleRequestCard()} />
             {latestCard && (
               <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
                 Card: <span className="font-mono">{latestCard.id.slice(0, 12)}…</span>{' '}
@@ -304,7 +342,7 @@ export default function HomePage() {
           </section>
         </div>
 
-        {/* Deposits list */}
+        {/* Deposits */}
         <section className="rounded-2xl bg-white p-5 shadow ring-1 ring-slate-100">
           <SectionHeader title={`Deposits (${deposits.length})`} />
           {deposits.length === 0 ? (
@@ -314,15 +352,13 @@ export default function HomePage() {
               <table className="w-full text-left text-sm">
                 <thead>
                   <tr className="border-b text-xs text-slate-400">
-                    <th className="pb-2 pr-4">ID</th>
-                    <th className="pb-2 pr-4">Amount</th>
-                    <th className="pb-2 pr-4">Currency</th>
-                    <th className="pb-2 pr-4">Status</th>
+                    <th className="pb-2 pr-4">ID</th><th className="pb-2 pr-4">Amount</th>
+                    <th className="pb-2 pr-4">Currency</th><th className="pb-2 pr-4">Status</th>
                     <th className="pb-2">Date</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {deposits.map((d) => (
+                  {deposits.map(d => (
                     <tr key={d.id} className="border-b last:border-0">
                       <td className="py-2 pr-4 font-mono text-xs text-slate-500">{d.id.slice(0, 8)}…</td>
                       <td className="py-2 pr-4 font-semibold">{fmt(d.amount)}</td>
@@ -340,14 +376,13 @@ export default function HomePage() {
         {/* Admin panels */}
         {isAdmin && (
           <>
-            {/* Operations log */}
             <section className="rounded-2xl bg-white p-5 shadow ring-1 ring-slate-100">
               <SectionHeader title="Operations Log" />
               {operations.length === 0 ? (
                 <p className="text-sm text-slate-400">No operations yet.</p>
               ) : (
                 <ul className="space-y-1 text-xs text-slate-600">
-                  {operations.slice(0, 15).map((op) => (
+                  {operations.slice(0, 15).map(op => (
                     <li key={op.id} className="flex justify-between border-b py-1 last:border-0">
                       <span className="font-mono">{op.operation}</span>
                       <span className="text-slate-400">{new Date(op.createdAt).toLocaleTimeString()}</span>
@@ -357,31 +392,17 @@ export default function HomePage() {
               )}
             </section>
 
-            {/* Compliance status */}
             {compliance && (
               <section className="rounded-2xl bg-white p-5 shadow ring-1 ring-slate-100">
                 <SectionHeader title="Compliance Status" />
                 <div className="grid gap-3 sm:grid-cols-3">
-                  <StatCard
-                    label="Controls Satisfied"
-                    value={`${compliance.satisfiedControls}/${compliance.totalControls}`}
-                    sub="COBIT · COSO · GAO · IIA"
-                  />
-                  <StatCard
-                    label="Chain Integrity"
-                    value={compliance.chainIntegrity ? '✓ Valid' : '✗ Broken'}
-                    sub="Immutable audit chain"
-                  />
-                  <StatCard
-                    label="Last Sweep"
-                    value={new Date(compliance.lastSweep).toLocaleTimeString()}
-                    sub={new Date(compliance.lastSweep).toLocaleDateString()}
-                  />
+                  <StatCard label="Controls Satisfied" value={`${compliance.satisfiedControls}/${compliance.totalControls}`} sub="COBIT · COSO · GAO · IIA" />
+                  <StatCard label="Chain Integrity" value={compliance.chainIntegrity ? '✓ Valid' : '✗ Broken'} sub="Immutable audit chain" />
+                  <StatCard label="Last Sweep" value={new Date(compliance.lastSweep).toLocaleTimeString()} sub={new Date(compliance.lastSweep).toLocaleDateString()} />
                 </div>
               </section>
             )}
 
-            {/* Audit log */}
             {auditLog.length > 0 && (
               <section className="rounded-2xl bg-white p-5 shadow ring-1 ring-slate-100">
                 <SectionHeader title="Immutable Audit Log (last 10)" />
@@ -389,22 +410,18 @@ export default function HomePage() {
                   <table className="w-full text-left text-xs">
                     <thead>
                       <tr className="border-b text-slate-400">
-                        <th className="pb-2 pr-4">Seq</th>
-                        <th className="pb-2 pr-4">Event</th>
-                        <th className="pb-2 pr-4">Agent</th>
-                        <th className="pb-2 pr-4">Chain</th>
+                        <th className="pb-2 pr-4">Seq</th><th className="pb-2 pr-4">Event</th>
+                        <th className="pb-2 pr-4">Agent</th><th className="pb-2 pr-4">Chain</th>
                         <th className="pb-2">Timestamp</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {auditLog.map((e) => (
+                      {auditLog.map(e => (
                         <tr key={e.sequence_number} className="border-b last:border-0">
                           <td className="py-1.5 pr-4 font-mono">{e.sequence_number}</td>
                           <td className="py-1.5 pr-4 text-slate-600">{e.event_type}</td>
                           <td className="py-1.5 pr-4 text-slate-500">{e.source_agent}</td>
-                          <td className="py-1.5 pr-4">
-                            <Pill status={e.chain_valid ? 'satisfied' : 'failed'} />
-                          </td>
+                          <td className="py-1.5 pr-4"><Pill status={e.chain_valid ? 'satisfied' : 'failed'} /></td>
                           <td className="py-1.5 text-slate-400">{new Date(e.timestamp).toLocaleString()}</td>
                         </tr>
                       ))}
@@ -416,8 +433,36 @@ export default function HomePage() {
           </>
         )}
       </div>
-
       <Toast message={toast} />
     </main>
   );
+}
+
+// ── Root ──────────────────────────────────────────────────────────────────────
+
+export default function HomePage() {
+  const [user, setUser]   = useState<AuthUser | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Bootstrap: check for existing session on page load
+  useEffect(() => {
+    apiFetch<{ user: AuthUser }>('/api/auth/me')
+      .then(data => setUser(data.user))
+      .catch(() => setUser(null))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-100">
+        <p className="text-sm text-slate-400">Loading…</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginScreen onLogin={setUser} />;
+  }
+
+  return <Dashboard user={user} onLogout={() => setUser(null)} />;
 }

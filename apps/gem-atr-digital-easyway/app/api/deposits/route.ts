@@ -13,9 +13,9 @@ import { parseCurrency, parseIdempotencyKey, parsePositiveAmount } from '@/src/s
 
 export const dynamic = 'force-dynamic';
 
-export function GET() {
+export async function GET() {
   try {
-    const user = requireUser();
+    const user = await requireUser();
     const items = listDeposits(user.id);
     return NextResponse.json({ deposits: items });
   } catch (err) {
@@ -26,7 +26,7 @@ export function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const user = requireUser();
+    const user = await requireUser();
 
     const ip = req.headers.get('x-forwarded-for') ?? req.headers.get('x-real-ip') ?? 'local';
     const limited = checkRateLimit(`deposits:${ip}`, 30, 60_000);

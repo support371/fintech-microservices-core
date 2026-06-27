@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   try {
-    const user = requireUser();
+    const user = await requireUser();
     const { complianceServiceUrl, appMode } = getConfig();
 
     if (appMode === 'mock') {

@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   try {
-    requireAdmin();
+    await requireAdmin();
     const { auditServiceUrl, appMode } = getConfig();
     const limit = Number(req.nextUrl.searchParams.get('limit') ?? '25');
 

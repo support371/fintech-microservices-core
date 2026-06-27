@@ -13,9 +13,9 @@ import { checkRateLimit } from '@/src/server/ratelimit';
 
 export const dynamic = 'force-dynamic';
 
-export function GET() {
+export async function GET() {
   try {
-    const user = requireUser();
+    const user = await requireUser();
     return NextResponse.json({ cards: listCards(user.id) });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unauthorized';
@@ -25,7 +25,7 @@ export function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const user = requireUser();
+    const user = await requireUser();
 
     const ip = req.headers.get('x-forwarded-for') ?? 'local';
     const limited = checkRateLimit(`cards:${user.id}`, 10, 60_000);
