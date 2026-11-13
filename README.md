@@ -133,3 +133,7 @@ The `foundry/` directory contains the agent specifications, configuration schema
 |------|-------------|
 | [scripts/foundry/RUN_WORKFLOW.md](scripts/foundry/RUN_WORKFLOW.md) | Step-by-step guide to running the locked-build workflow |
 | [scripts/foundry/PROMPTS.md](scripts/foundry/PROMPTS.md) | LLM prompt templates for invoking each Foundry agent |
+
+## Prototype
+
+The `prototype/nexus-demo.html` file is a standalone interactive demo of the Nexus dashboard UI. Open it directly in a browser — no build step required.
