@@ -1,67 +1,76 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://nexus.alliancetrustrealty.com/schemas/ledger.schema.json",
-  "title": "LedgerAgent Event Schema",
-  "description": "Schema for ledger entries recorded by the Ledger Agent. Every platform event is stored as an immutable entry.",
+  "$id": "nexus/ledger",
+  "title": "Nexus Ledger Schema",
+  "description": "Double-entry bookkeeping schema for account operations, balance tracking, and financial audit trail.",
   "type": "object",
-  "required": ["entry_id", "trace_id", "event_type", "timestamp", "payload"],
   "properties": {
-    "entry_id": {
-      "type": "string",
-      "pattern": "^led-[a-z0-9]{8,}$",
-      "description": "Unique, immutable identifier for this ledger entry."
+    "entry_types": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["debit", "credit"] }
     },
-    "trace_id": {
-      "type": "string",
-      "description": "Trace identifier from the originating service or agent."
+    "reference_types": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["deposit", "transfer", "exchange", "card_transaction", "fee", "reversal"]
+      }
     },
-    "event_type": {
-      "type": "string",
-      "enum": [
-        "card_issued",
-        "fund_loaded",
-        "conversion_settled",
-        "webhook_received",
-        "compliance_decision",
-        "security_event",
-        "build_completed",
-        "deployment_promoted"
-      ],
-      "description": "Category of the recorded event."
-    },
-    "timestamp": {
-      "type": "string",
-      "format": "date-time",
-      "description": "ISO 8601 UTC timestamp of when the event occurred."
-    },
-    "payload": {
+    "supported_currencies": {
       "type": "object",
-      "description": "Event-specific data. Structure varies by event_type.",
-      "additionalProperties": true
+      "properties": {
+        "fiat": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["USD", "EUR", "GBP"] }
+        },
+        "crypto": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["BTC"] }
+        }
+      },
+      "required": ["fiat", "crypto"]
     },
-    "source_agent": {
-      "type": "string",
-      "enum": [
-        "ComplianceAgent",
-        "SecurityAgent",
-        "LedgerAgent",
-        "PlatformAgent",
-        "BuildAgent",
-        "card_platform_service",
-        "converter_service"
-      ],
-      "description": "The agent or service that produced this event."
+    "account_types": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["checking", "savings", "bitcoin"] }
     },
-    "duplicate": {
-      "type": "boolean",
-      "default": false,
-      "description": "True if this event was deduplicated against an existing entry."
+    "precision": {
+      "type": "object",
+      "properties": {
+        "fiat_decimal_places": { "type": "integer", "minimum": 2, "maximum": 4 },
+        "btc_decimal_places": { "type": "integer", "minimum": 8, "maximum": 8 }
+      },
+      "required": ["fiat_decimal_places", "btc_decimal_places"]
     },
-    "retention_days": {
-      "type": "integer",
-      "minimum": 30,
-      "default": 365,
-      "description": "Number of days this entry must be retained before archival."
+    "invariants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "check": { "type": "string" }
+        },
+        "required": ["name", "description"]
+      }
+    },
+    "idempotency": {
+      "type": "object",
+      "properties": {
+        "key_pattern": {
+          "type": "string",
+          "description": "Regex pattern for valid idempotency keys"
+        },
+        "key_min_length": { "type": "integer", "minimum": 8 },
+        "key_max_length": { "type": "integer", "maximum": 64 },
+        "scopes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Operation scopes: deposit, transfer, exchange, card"
+        }
+      },
+      "required": ["key_pattern", "scopes"]
     }
-  }
+  },
+  "required": ["entry_types", "reference_types", "supported_currencies", "precision", "idempotency"]
 }

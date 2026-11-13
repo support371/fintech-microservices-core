@@ -1,239 +1,204 @@
-# Nexus Locked-Build Workflow
-# ===========================
-# This workflow defines the gated build-and-deploy pipeline for the Nexus
-# platform. Every step must pass before the next one starts. A failure at
-# any gate halts the pipeline and notifies the PlatformAgent.
-#
-# Output contract:
-#   Final step emits JSON with { "verdict": "READY" | "BLOCKED", ... }
-
 name: nexus-locked-build
 description: >
-  End-to-end locked build pipeline for Alliance Trust Realty's Nexus platform.
-  Ensures compliance, security, and ledger integrity before promoting a build.
+  Locked build workflow for the Nexus Banking Platform.
+  Orchestrates all foundry agents in sequence to validate, audit,
+  and deploy the platform with full compliance and security checks.
+
+version: "1.0"
+platform: nexus-banking-fullstack
 
 triggers:
-  - release.published
-  - workflow_dispatch
+  - event: push
+    branches: [main, staging]
+  - event: manual
+    label: "Run Nexus Build Pipeline"
 
-env:
-  PYTHON_VERSION: "3.x"
-  CARD_SERVICE_PORT: 8001
-  CONVERTER_SERVICE_PORT: 8000
+environment:
+  MOCK_MODE: "false"
+  STRICT_COMPLIANCE: "true"
 
-steps:
-  # ── Stage 1: Build ────────────────────────────────────────────────
-  - id: checkout
-    name: Checkout source
-    action: git/checkout
-
-  - id: install-deps
-    name: Install Python dependencies
-    action: python/install
-    with:
-      requirements:
-        - requirements.txt
-        - card_platform_service/requirements.txt
-        - converter_service/requirements.txt
-
-  - id: build-packages
-    name: Build distribution packages
-    action: python/build
-    with:
-      output_dir: dist/
-
-  - id: build-docker
-    name: Build Docker images
-    action: docker/build
-    with:
-      targets:
-        - context: card_platform_service/
-          tag: card-platform-service:${{ run.sha }}
-        - context: converter_service/
-          tag: converter-service:${{ run.sha }}
-
-  # ── Stage 2: Agent Validation Gates ───────────────────────────────
-  #
-  # Each gate MUST return { "status": "APPROVED" | "REJECTED", ... }.
-  # The pipeline hard-stops if status != APPROVED.
-
-  - id: compliance-gate
-    name: Compliance Agent validation
-    agent: ComplianceAgent
-    action: validate
-    expected_status: APPROVED
-    description: >
-      Verify that all code changes comply with KYC/AML policies and that
-      no regulatory constraints are violated by the new build.
-    output_format:
-      type: json
-      schema:
-        status:
-          type: string
-          enum: ["APPROVED", "REJECTED"]
-        reason:
-          type: string
-        compliance_event:
-          type: object
-    on_failure: halt
-
-  - id: security-gate
-    name: Security Agent validation
-    agent: SecurityAgent
-    action: validate
-    expected_status: APPROVED
-    description: >
-      Scan for exposed secrets, validate HMAC configurations, and ensure
-      all webhook endpoints enforce signature verification.
-    output_format:
-      type: json
-      schema:
-        status:
-          type: string
-          enum: ["APPROVED", "REJECTED"]
-        threat_level:
-          type: string
-          enum: ["none", "low", "medium", "high"]
-        security_event:
-          type: object
-    on_failure: halt
-
-  - id: ledger-gate
-    name: Ledger Agent integrity check
-    agent: LedgerAgent
-    action: verify_integrity
-    expected_status: APPROVED
-    description: >
-      Confirm that the build does not introduce schema-breaking changes
-      to ledger event formats and that idempotency logic is intact.
-    output_format:
-      type: json
-      schema:
-        status:
-          type: string
-          enum: ["APPROVED", "REJECTED"]
-        reason:
-          type: string
-        integrity_report:
-          type: object
-    on_failure: halt
-
-  - id: platform-gate
-    name: Platform Agent readiness check
-    agent: PlatformAgent
-    action: validate
-    expected_status: APPROVED
-    description: >
-      Verify that platform services are healthy and the deployment
-      configuration is valid before proceeding.
-    output_format:
-      type: json
-      schema:
-        status:
-          type: string
-          enum: ["APPROVED", "REJECTED"]
-        services_healthy:
-          type: boolean
-        reason:
-          type: string
-    on_failure: halt
-
-  # ── Stage 3: Build Agent Decision ─────────────────────────────────
-  #
-  # The BuildAgent receives the full input pack from all four agent
-  # gates and emits a final READY / BLOCKED verdict.
-
-  - id: build-decision
-    name: Build Agent final verdict
+stages:
+  # ── Stage 1: Build Validation ──
+  - name: build-validation
     agent: BuildAgent
-    action: decide
-    input_pack:
-      COMPLIANCE: ${{ steps.compliance-gate.output }}
-      SECURITY: ${{ steps.security-gate.output }}
-      LEDGER: ${{ steps.ledger-gate.output }}
-      PLATFORM: ${{ steps.platform-gate.output }}
-    output_format:
-      type: json
-      schema:
-        verdict:
-          type: string
-          enum: ["READY", "BLOCKED"]
-        build_id:
-          type: string
-        reason:
-          type: string
-        gate_results:
-          type: object
-          properties:
-            COMPLIANCE:
-              type: string
-            SECURITY:
-              type: string
-            LEDGER:
-              type: string
-            PLATFORM:
-              type: string
-    on_failure: halt
-    requires:
-      - compliance-gate
-      - security-gate
-      - ledger-gate
-      - platform-gate
+    description: Validate TypeScript build, dependencies, and deployment config
+    steps:
+      - action: validate_typescript
+        config:
+          strict: true
+          module_resolution: bundler
+      - action: validate_dependencies
+        config:
+          audit_level: moderate
+      - action: validate_vercel_config
+        config:
+          check_crons: true
+          check_headers: true
+      - action: validate_environment
+        config:
+          check_required_vars: true
+          fail_on_missing: true
+    on_failure: abort
 
-  # ── Stage 4: Deploy (only if verdict == READY) ────────────────────
-  - id: publish-artifacts
-    name: Publish packages to PyPI
-    action: pypi/publish
-    with:
-      dist_dir: dist/
-    requires:
-      - build-decision
-
-  - id: push-images
-    name: Push Docker images to registry
-    action: docker/push
-    with:
-      registry: gcr.io
-    requires:
-      - build-decision
-
-  - id: deploy
-    name: Deploy to Cloud Run
-    agent: PlatformAgent
-    action: deploy
-    with:
-      services:
-        - card_platform_service
-        - converter_service
-    requires:
-      - publish-artifacts
-      - push-images
-
-  # ── Stage 5: Post-deploy ──────────────────────────────────────────
-  - id: record-deployment
-    name: Record deployment in ledger
+  # ── Stage 2: Schema Validation ──
+  - name: schema-validation
     agent: LedgerAgent
-    action: record
-    with:
-      event_type: deployment_promoted
-      payload:
-        commit: ${{ run.sha }}
-        build_id: ${{ steps.build-decision.output.build_id }}
-        services:
-          - card_platform_service
-          - converter_service
-    requires:
-      - deploy
+    description: Validate database schema and ledger invariants
+    depends_on: [build-validation]
+    steps:
+      - action: validate_migrations
+        config:
+          directory: supabase/migrations
+          check_syntax: true
+          check_extensions: true
+      - action: validate_ledger_invariants
+        config:
+          check_double_entry: true
+          check_balance_constraints: true
+          check_idempotency_keys: true
+      - action: validate_seed_data
+        config:
+          file: supabase/seed.sql
+          check_referential_integrity: true
+    on_failure: abort
 
-  - id: notify
-    name: Notify stakeholders
-    action: notify
-    with:
-      channels:
-        - platform-alerts
-      message: >
-        Nexus locked-build ${{ run.id }} completed successfully.
-        Commit: ${{ run.sha }}
-        Verdict: ${{ steps.build-decision.output.verdict }}
-    requires:
-      - record-deployment
+  # ── Stage 3: Security Audit ──
+  - name: security-audit
+    agent: SecurityAgent
+    description: Audit webhook security, authentication, and rate limiting
+    depends_on: [build-validation]
+    steps:
+      - action: audit_webhook_handlers
+        config:
+          sources: [banking, kyc, cards]
+          require_hmac_sha256: true
+          require_timing_safe: true
+      - action: audit_authentication
+        config:
+          check_bearer_token: true
+          check_admin_guards: true
+      - action: audit_rate_limiting
+        config:
+          check_mutation_endpoints: true
+          min_capacity: 10
+          max_window_ms: 120000
+      - action: audit_response_headers
+        config:
+          require_nosniff: true
+          require_frame_deny: true
+      - action: audit_secret_exposure
+        config:
+          check_gitignore: true
+          check_env_example: true
+          scan_source_for_secrets: true
+    on_failure: abort
+
+  # ── Stage 4: Compliance Check ──
+  - name: compliance-check
+    agent: ComplianceAgent
+    description: Verify KYC/AML compliance rules and transaction limits
+    depends_on: [schema-validation, security-audit]
+    steps:
+      - action: verify_kyc_enforcement
+        config:
+          card_min_tier: 3
+          check_all_endpoints: true
+      - action: verify_transaction_limits
+        config:
+          max_deposit: 10000000
+          max_exchange: 100000
+          check_db_constraints: true
+      - action: verify_audit_trail
+        config:
+          check_operations_log: true
+          check_webhook_dedup: true
+          check_ledger_references: true
+    on_failure: warn
+
+  # ── Stage 5: Platform Health ──
+  - name: platform-health
+    agent: PlatformAgent
+    description: Verify platform configuration and operational readiness
+    depends_on: [compliance-check]
+    steps:
+      - action: verify_health_endpoint
+        config:
+          path: /api/health
+          expected_checks: [database, app_config]
+      - action: verify_cron_jobs
+        config:
+          jobs:
+            - path: /api/cron/email-worker
+              schedule: "*/5 * * * *"
+              auth: bearer_token
+      - action: verify_notification_outbox
+        config:
+          batch_size: 25
+          max_attempts: 5
+          backoff: exponential
+      - action: verify_admin_dashboard
+        config:
+          path: /api/admin/operations
+          require_admin_auth: true
+    on_failure: warn
+
+  # ── Stage 6: Privacy Compliance ──
+  - name: privacy-compliance
+    agent: ComplianceAgent
+    description: Verify data protection compliance across jurisdictions
+    depends_on: [compliance-check]
+    steps:
+      - action: verify_dsr_endpoints
+        config:
+          path: /api/privacy
+          supported_types: [access, rectification, deletion, portability, restriction]
+          require_auth: true
+      - action: verify_deletion_policy
+        config:
+          anonymisation_method: pseudonymisation
+          retained_records: [deposits, transfers, exchange_orders, ledger_entries, operations_log]
+          retention_years: 5
+      - action: verify_data_minimisation
+        config:
+          check_collection_fields: true
+          check_response_filtering: true
+      - action: verify_cross_border_compliance
+        config:
+          check_transfer_mechanisms: true
+          jurisdictions: [US, EU, UK, JP, AE, BR]
+    on_failure: warn
+
+  # ── Stage 7: Deploy ──
+  - name: deploy
+    agent: BuildAgent
+    description: Deploy to Vercel with all checks passed
+    depends_on: [platform-health, privacy-compliance]
+    condition: all_previous_passed
+    steps:
+      - action: deploy_vercel
+        config:
+          production: true
+          verify_cron_registration: true
+      - action: run_smoke_tests
+        config:
+          endpoints:
+            - { method: GET, path: /api/health, expect_status: 200 }
+            - { method: GET, path: /api/accounts, expect_status: 401 }
+    on_failure: rollback
+
+outputs:
+  - name: build_report
+    description: Full build validation report
+    from: build-validation
+  - name: security_report
+    description: Security audit findings
+    from: security-audit
+  - name: compliance_report
+    description: Compliance verification results
+    from: compliance-check
+  - name: privacy_report
+    description: Data protection compliance results
+    from: privacy-compliance
+  - name: deployment_url
+    description: Deployed application URL
+    from: deploy

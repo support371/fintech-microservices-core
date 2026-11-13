@@ -1,107 +1,82 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://nexus.alliancetrustrealty.com/schemas/platform.schema.json",
-  "title": "PlatformAgent Configuration",
-  "description": "Schema for the Platform Agent's workflow orchestration, health monitoring, and deployment settings.",
+  "$id": "nexus/platform",
+  "title": "Nexus Platform Configuration",
+  "description": "Platform-level configuration for health monitoring, cron scheduling, notifications, and operational limits.",
   "type": "object",
-  "required": ["services", "workflows", "retry"],
   "properties": {
-    "services": {
+    "application": {
       "type": "object",
-      "description": "Service registry for the platform.",
-      "required": ["card_platform_service", "converter_service"],
       "properties": {
-        "card_platform_service": {
-          "type": "object",
-          "properties": {
-            "base_url": {
-              "type": "string",
-              "format": "uri",
-              "default": "http://localhost:8001",
-              "description": "Base URL for the card platform service."
-            },
-            "health_endpoint": {
-              "type": "string",
-              "default": "/health",
-              "description": "Health check path."
-            }
-          }
-        },
-        "converter_service": {
-          "type": "object",
-          "properties": {
-            "base_url": {
-              "type": "string",
-              "format": "uri",
-              "default": "http://localhost:8000",
-              "description": "Base URL for the converter service."
-            },
-            "health_endpoint": {
-              "type": "string",
-              "default": "/health",
-              "description": "Health check path."
-            }
-          }
+        "name": { "type": "string", "default": "Nexus Financial" },
+        "framework": { "type": "string", "enum": ["nextjs"] },
+        "framework_version": { "type": "string" },
+        "mock_mode_env_var": { "type": "string", "default": "NEXT_PUBLIC_MOCK_MODE" },
+        "production_guard": {
+          "type": "boolean",
+          "description": "If true, fail fast when mock mode is enabled in Vercel production",
+          "default": true
         }
-      }
-    },
-    "workflows": {
-      "type": "object",
-      "description": "Workflow execution settings.",
-      "properties": {
-        "default_workflow": {
-          "type": "string",
-          "default": "nexus-locked-build",
-          "description": "Default workflow to execute when no specific workflow is requested."
-        },
-        "workflow_dir": {
-          "type": "string",
-          "default": "foundry/workflows",
-          "description": "Directory containing workflow YAML definitions."
-        }
-      }
-    },
-    "retry": {
-      "type": "object",
-      "description": "Retry and error recovery settings.",
-      "properties": {
-        "max_retries": {
-          "type": "integer",
-          "minimum": 0,
-          "default": 3,
-          "description": "Maximum number of retry attempts for failed operations."
-        },
-        "backoff_base_seconds": {
-          "type": "number",
-          "minimum": 0.1,
-          "default": 2.0,
-          "description": "Base delay in seconds for exponential back-off."
-        },
-        "backoff_max_seconds": {
-          "type": "number",
-          "minimum": 1,
-          "default": 60,
-          "description": "Maximum delay cap for exponential back-off."
-        }
-      }
+      },
+      "required": ["name", "framework"]
     },
     "health_check": {
       "type": "object",
-      "description": "Health monitoring configuration.",
       "properties": {
-        "interval_seconds": {
-          "type": "integer",
-          "minimum": 5,
-          "default": 30,
-          "description": "Interval between health check polls."
+        "endpoint": { "type": "string", "default": "/api/health" },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["database", "app_config", "providers"]
+          }
         },
-        "timeout_seconds": {
-          "type": "integer",
-          "minimum": 1,
-          "default": 5,
-          "description": "Timeout for each health check request."
+        "statuses": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["healthy", "unhealthy", "mock"] }
+        }
+      },
+      "required": ["endpoint", "checks"]
+    },
+    "cron_jobs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "path": { "type": "string" },
+          "schedule": { "type": "string", "description": "Cron expression" },
+          "max_duration_seconds": { "type": "integer" },
+          "auth_method": { "type": "string", "enum": ["bearer_token", "none"] }
+        },
+        "required": ["name", "path", "schedule"]
+      }
+    },
+    "notifications": {
+      "type": "object",
+      "properties": {
+        "channels": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["email", "sms", "push"] }
+        },
+        "outbox_batch_size": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "max_retry_attempts": { "type": "integer", "minimum": 1 },
+        "backoff_strategy": { "type": "string", "enum": ["exponential", "linear", "fixed"] },
+        "max_backoff_minutes": { "type": "integer" }
+      },
+      "required": ["channels", "outbox_batch_size", "max_retry_attempts"]
+    },
+    "admin": {
+      "type": "object",
+      "properties": {
+        "operations_endpoint": { "type": "string", "default": "/api/admin/operations" },
+        "max_log_entries": { "type": "integer", "default": 100 },
+        "summary_metrics": {
+          "type": "array",
+          "items": { "type": "string" }
         }
       }
     }
-  }
+  },
+  "required": ["application", "health_check", "cron_jobs", "notifications"]
 }

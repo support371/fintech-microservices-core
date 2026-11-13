@@ -20,8 +20,6 @@
     {
       "src": "/api/platform/(.*)",
       "dest": "/api/card_platform_service/main.py"
-      "src": "api/*.py",
-      "use": "@vercel/python"
     }
   ],
   "rewrites": [

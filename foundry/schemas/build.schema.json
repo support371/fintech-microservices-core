@@ -1,137 +1,95 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://nexus.alliancetrustrealty.com/schemas/build.schema.json",
-  "title": "BuildAgent Configuration",
-  "description": "Schema for the Build Agent's CI pipeline, artifact management, and deployment promotion settings.",
+  "$id": "nexus/build",
+  "title": "Nexus Build Configuration",
+  "description": "Build pipeline, deployment, and environment validation configuration.",
   "type": "object",
-  "required": ["ci", "artifacts", "promotion"],
   "properties": {
-    "ci": {
+    "build": {
       "type": "object",
-      "description": "Continuous integration pipeline settings.",
-      "required": ["workflow_file"],
       "properties": {
-        "workflow_file": {
-          "type": "string",
-          "default": ".github/workflows/python-publish.yml",
-          "description": "Path to the GitHub Actions workflow definition."
+        "framework": { "type": "string", "enum": ["nextjs"] },
+        "build_command": { "type": "string", "default": "npm run build" },
+        "output_directory": { "type": "string", "default": ".next" },
+        "typescript": {
+          "type": "object",
+          "properties": {
+            "strict": { "type": "boolean", "default": true },
+            "module_resolution": { "type": "string", "enum": ["bundler", "node", "node16"] },
+            "target": { "type": "string" }
+          }
         },
-        "triggers": {
+        "required_files": {
           "type": "array",
-          "items": {
-            "type": "string",
-            "enum": ["push", "release", "manual"]
-          },
-          "default": ["release"],
-          "description": "Events that trigger the CI pipeline."
-        },
-        "python_version": {
-          "type": "string",
-          "default": "3.x",
-          "description": "Python version constraint for the build environment."
+          "items": { "type": "string" },
+          "description": "Files that must exist for a valid build"
         }
-      }
+      },
+      "required": ["framework", "build_command"]
     },
-    "artifacts": {
+    "deployment": {
       "type": "object",
-      "description": "Build artifact configuration.",
       "properties": {
-        "dist_dir": {
-          "type": "string",
-          "default": "dist/",
-          "description": "Directory where built distribution packages are placed."
-        },
-        "docker_targets": {
+        "platform": { "type": "string", "enum": ["vercel", "railway", "self-hosted"] },
+        "cron_config_file": { "type": "string", "default": "vercel.json" },
+        "database": {
+          "type": "object",
+          "properties": {
+            "provider": { "type": "string", "enum": ["supabase", "postgres", "planetscale"] },
+            "migrations_directory": { "type": "string" },
+            "seed_file": { "type": "string" }
+          },
+          "required": ["provider", "migrations_directory"]
+        }
+      },
+      "required": ["platform", "database"]
+    },
+    "environment": {
+      "type": "object",
+      "properties": {
+        "required_variables": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["service", "dockerfile"],
             "properties": {
-              "service": {
-                "type": "string",
-                "description": "Service name."
-              },
-              "dockerfile": {
-                "type": "string",
-                "description": "Path to the Dockerfile."
-              },
-              "port": {
-                "type": "integer",
-                "description": "Port the service listens on."
-              }
-            }
-          },
-          "default": [
-            {
-              "service": "card_platform_service",
-              "dockerfile": "card_platform_service/Dockerfile",
-              "port": 8001
+              "name": { "type": "string" },
+              "public": { "type": "boolean", "default": false },
+              "description": { "type": "string" },
+              "required_in_production": { "type": "boolean", "default": true }
             },
-            {
-              "service": "converter_service",
-              "dockerfile": "converter_service/Dockerfile",
-              "port": 8000
-            }
-          ],
-          "description": "Docker image build targets."
-        }
-      }
-    },
-    "promotion": {
-      "type": "object",
-      "description": "Deployment promotion policies.",
-      "required": ["required_gates"],
-      "properties": {
-        "required_gates": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": ["COMPLIANCE", "SECURITY", "LEDGER", "PLATFORM"]
-          },
-          "default": ["COMPLIANCE", "SECURITY", "LEDGER", "PLATFORM"],
-          "description": "Agent gates that must return APPROVED before the build can be promoted."
-        },
-        "auto_promote": {
-          "type": "boolean",
-          "default": false,
-          "description": "Whether to automatically promote builds that pass all checks."
-        },
-        "registry": {
-          "type": "string",
-          "default": "gcr.io",
-          "description": "Container registry for published images."
-        }
-      }
-    },
-    "verdict_output": {
-      "type": "object",
-      "description": "Schema for the BuildAgent's final decision output.",
-      "required": ["verdict", "build_id"],
-      "properties": {
-        "verdict": {
-          "type": "string",
-          "enum": ["READY", "BLOCKED"],
-          "description": "READY if all required gates returned APPROVED; BLOCKED otherwise."
-        },
-        "build_id": {
-          "type": "string",
-          "description": "Unique build identifier."
-        },
-        "reason": {
-          "type": "string",
-          "description": "Human-readable explanation of the verdict."
-        },
-        "gate_results": {
-          "type": "object",
-          "description": "Per-gate status from the input pack.",
-          "properties": {
-            "COMPLIANCE": { "type": "string" },
-            "SECURITY": { "type": "string" },
-            "LEDGER": { "type": "string" },
-            "PLATFORM": { "type": "string" }
+            "required": ["name"]
           }
+        },
+        "example_file": { "type": "string", "default": ".env.example" },
+        "secret_patterns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Glob patterns for files that must be gitignored"
         }
+      },
+      "required": ["required_variables", "secret_patterns"]
+    },
+    "security_headers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source_pattern": { "type": "string" },
+          "headers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": { "type": "string" },
+                "value": { "type": "string" }
+              },
+              "required": ["key", "value"]
+            }
+          }
+        },
+        "required": ["source_pattern", "headers"]
       }
     }
-  }
+  },
+  "required": ["build", "deployment", "environment"]
 }
