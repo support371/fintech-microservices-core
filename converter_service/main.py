@@ -1,16 +1,31 @@
-from fastapi import FastAPI, Request, HTTPException, Header
 import json
-from .logic import ConversionLogic
+import time
 import logging
-
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
+from fastapi import FastAPI, Request, HTTPException, Header
 from pydantic import BaseModel
+from .logic import ConversionLogic
+
+# Structured JSON logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='{"timestamp":"%(asctime)s","service":"converter","level":"%(levelname)s","message":"%(message)s"}'
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Fiat-to-BTC Converter Service", description="Project 1: Secure Webhook Handler.")
 converter_logic = ConversionLogic()
+
+
+@app.get("/health")
+def health_check():
+    """Health check endpoint for Kubernetes probes."""
+    return {"status": "healthy", "service": "converter-service", "timestamp": time.time()}
+
+
+@app.get("/ready")
+def readiness_check():
+    """Readiness check endpoint."""
+    return {"status": "ready"}
 
 class InternalFundTransferRequest(BaseModel):
     user_id: str

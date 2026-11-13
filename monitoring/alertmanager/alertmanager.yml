@@ -1,0 +1,93 @@
+# =============================================================================
+# AlertManager Configuration - Fintech Platform
+# =============================================================================
+
+global:
+  resolve_timeout: 5m
+  smtp_from: "alerts@fintech.example.com"
+  smtp_smarthost: "smtp.example.com:587"
+  smtp_auth_username: "alerts@fintech.example.com"
+  smtp_auth_password: "${SMTP_PASSWORD}"
+  smtp_require_tls: true
+
+# Templates
+templates:
+  - "/etc/alertmanager/templates/*.tmpl"
+
+# Routing tree
+route:
+  group_by: ["alertname", "service", "severity"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: "default"
+
+  routes:
+    # Critical security alerts - immediate notification
+    - match:
+        severity: critical
+        compliance: security
+      receiver: "security-team"
+      group_wait: 10s
+      repeat_interval: 1h
+
+    # Financial/compliance alerts
+    - match_re:
+        compliance: "financial|aml|pci-dss"
+      receiver: "compliance-team"
+      group_wait: 30s
+      repeat_interval: 2h
+
+    # Critical infrastructure alerts
+    - match:
+        severity: critical
+      receiver: "oncall-team"
+      group_wait: 10s
+      repeat_interval: 1h
+
+    # Warning level alerts
+    - match:
+        severity: warning
+      receiver: "engineering-team"
+      repeat_interval: 4h
+
+# Receivers
+receivers:
+  - name: "default"
+    email_configs:
+      - to: "engineering@fintech.example.com"
+        send_resolved: true
+
+  - name: "security-team"
+    email_configs:
+      - to: "security@fintech.example.com"
+        send_resolved: true
+    webhook_configs:
+      - url: "${PAGERDUTY_WEBHOOK_URL}"
+        send_resolved: true
+
+  - name: "compliance-team"
+    email_configs:
+      - to: "compliance@fintech.example.com"
+        send_resolved: true
+
+  - name: "oncall-team"
+    email_configs:
+      - to: "oncall@fintech.example.com"
+        send_resolved: true
+    webhook_configs:
+      - url: "${PAGERDUTY_WEBHOOK_URL}"
+        send_resolved: true
+
+  - name: "engineering-team"
+    email_configs:
+      - to: "engineering@fintech.example.com"
+        send_resolved: true
+
+# Inhibition rules
+inhibit_rules:
+  - source_match:
+      severity: "critical"
+    target_match:
+      severity: "warning"
+    equal: ["alertname", "service"]

@@ -1,9 +1,33 @@
+import logging
+import time
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from .clients import CardPlatformLogic
 
+# Structured logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='{"timestamp":"%(asctime)s","service":"card-platform","level":"%(levelname)s","message":"%(message)s"}'
+)
+logger = logging.getLogger(__name__)
+
 app = FastAPI(title="Digital Debit Card Platform API", description="Project 2: Client-facing API for Card/KYC.")
 card_logic = CardPlatformLogic()
+
+
+@app.get("/health")
+def health_check():
+    """Health check endpoint for Kubernetes probes."""
+    return {"status": "healthy", "service": "card-platform-service", "timestamp": time.time()}
+
+
+@app.get("/ready")
+def readiness_check():
+    """Readiness check - verifies database connectivity."""
+    db_ok = card_logic.db_conn is not None
+    if not db_ok:
+        raise HTTPException(status_code=503, detail="Database not connected")
+    return {"status": "ready", "database": "connected"}
 
 class CardIssuanceRequest(BaseModel):
   user_id: str

@@ -1,41 +1,49 @@
 # LedgerAgent
 
-## Role
-Manages the double-entry bookkeeping system, ensuring financial integrity across all account operations.
+## Purpose
+
+The Ledger Agent maintains an immutable, append-only record of every significant
+event in the Nexus platform — transactions, compliance decisions, security
+incidents, and system state changes.
 
 ## Responsibilities
-- Enforce double-entry invariant: every debit has a matching credit
-- Validate balance consistency (balance_after must match computed running total)
-- Process deposits, transfers, and exchange orders through the ledger
-- Detect and report ledger imbalances or orphaned entries
-- Maintain audit trail via `ledger_entries` table with full reference tracking
-- Ensure idempotency key uniqueness prevents duplicate financial operations
+
+- **Transaction Recording** — Persist every fiat-to-BTC conversion, card
+  issuance, and fund load with full trace context.
+- **Event Aggregation** — Collect events from the Compliance, Security, Platform,
+  and Build agents into a unified ledger.
+- **Idempotency Enforcement** — Deduplicate events using `trace_id` /
+  `transaction_id` to prevent double-recording.
+- **Reconciliation** — Provide queries to reconcile ledger entries against
+  external provider records (Striga, banking webhooks).
 
 ## Inputs
-- `ledger.schema.json` — Ledger entry structure and validation rules
-- Deposit, transfer, and exchange order requests
-- Account balance snapshots
-- Idempotency keys from API requests
+
+| Field            | Type   | Source                          |
+|------------------|--------|---------------------------------|
+| `trace_id`       | string | Originating service             |
+| `event_type`     | string | Agent or service identifier     |
+| `payload`        | object | Event-specific data             |
+| `timestamp`      | string | ISO 8601 UTC                    |
+| `source_agent`   | string | Agent or service that produced the event |
 
 ## Outputs
-- Ledger entry pairs (debit + credit) for each financial operation
-- Updated account balances (balance + available_balance)
-- Balance reconciliation reports
-- Idempotency collision alerts
 
-## Invariants
-1. Sum of all credits minus sum of all debits per account equals current balance
-2. Every ledger entry references exactly one operation (deposit, transfer, or exchange)
-3. No negative balances permitted (enforced at DB level via CHECK constraint)
-4. Idempotency keys are globally unique within their operation type
-
-## Trigger Conditions
-- POST /api/deposits — create credit entry
-- POST /api/transfers — create debit + credit entry pair
-- POST /api/exchange — create debit (fiat) + credit (BTC) entry pair
-- Webhook deposit.completed — reconcile pending deposit
+| Field          | Type    | Description                            |
+|----------------|---------|----------------------------------------|
+| `ledger_entry` | object  | The persisted, immutable ledger record |
+| `entry_id`     | string  | Unique identifier for the entry        |
+| `duplicate`    | boolean | `true` if the event was deduplicated   |
 
 ## Integration Points
-- Triggers ComplianceAgent for large-value transactions
-- Reports balance anomalies to PlatformAgent
-- Uses provider results from banking/exchange providers
+
+- Consumes events from **ComplianceAgent**, **SecurityAgent**,
+  **PlatformAgent**, and **BuildAgent**
+- Backs the reconciliation API used by the admin dashboard
+  (`/api/admin/operations`)
+- References schema in `foundry/schemas/ledger.schema.json`
+
+## Configuration
+
+See `foundry/schemas/ledger.schema.json` for the full event schema, including
+required fields, allowed event types, and retention policies.

@@ -97,20 +97,39 @@ npm install
 npm start             # Runs on port 3000
 ```
 
-## Foundry Agent System
+## Foundry — Agent Definitions & Schemas
 
-The `foundry/` directory defines five specialized agents that validate, audit, and orchestrate the platform:
+The `foundry/` directory contains the agent specifications, configuration schemas, and workflow definitions for the Nexus platform's AI-powered agent layer.
 
-| Agent            | Role                                              |
-|------------------|---------------------------------------------------|
-| ComplianceAgent  | KYC/AML enforcement, transaction limits, audit     |
-| SecurityAgent    | Webhook HMAC, rate limiting, auth validation       |
-| LedgerAgent      | Double-entry integrity, balance reconciliation     |
-| PlatformAgent    | Health monitoring, cron jobs, notifications        |
-| BuildAgent       | Build validation, deployment, environment checks   |
+### Agents (`foundry/agents/`)
 
-The `nexus-locked-build.yaml` workflow orchestrates all agents in sequence. See `scripts/foundry/RUN_WORKFLOW.md` for execution instructions and `scripts/foundry/PROMPTS.md` for agent prompt templates.
+| Agent | Description |
+|-------|-------------|
+| [ComplianceAgent](foundry/agents/ComplianceAgent.md) | Enforces KYC/AML regulatory requirements |
+| [SecurityAgent](foundry/agents/SecurityAgent.md) | Validates HMAC signatures, rate limiting, anomaly detection |
+| [LedgerAgent](foundry/agents/LedgerAgent.md) | Maintains immutable append-only event ledger |
+| [PlatformAgent](foundry/agents/PlatformAgent.md) | Orchestrates workflows, health monitoring, deployments |
+| [BuildAgent](foundry/agents/BuildAgent.md) | Manages CI/CD pipeline and locked-build enforcement |
 
-## Prototype
+### Schemas (`foundry/schemas/`)
 
-The `prototype/nexus-demo.html` file is a standalone interactive demo of the Nexus dashboard UI. Open it directly in a browser — no build step required.
+| Schema | Description |
+|--------|-------------|
+| [compliance.schema.json](foundry/schemas/compliance.schema.json) | KYC tier rules, AML thresholds, reporting config |
+| [security.schema.json](foundry/schemas/security.schema.json) | HMAC settings, rate limits, anomaly thresholds |
+| [ledger.schema.json](foundry/schemas/ledger.schema.json) | Ledger event entry format and retention policies |
+| [platform.schema.json](foundry/schemas/platform.schema.json) | Service registry, workflow settings, retry policies |
+| [build.schema.json](foundry/schemas/build.schema.json) | CI pipeline, artifact config, promotion policies |
+
+### Workflows (`foundry/workflows/`)
+
+| Workflow | Description |
+|----------|-------------|
+| [nexus-locked-build.yaml](foundry/workflows/nexus-locked-build.yaml) | Gated build-and-deploy pipeline with agent validation gates |
+
+## Scripts
+
+| File | Description |
+|------|-------------|
+| [scripts/foundry/RUN_WORKFLOW.md](scripts/foundry/RUN_WORKFLOW.md) | Step-by-step guide to running the locked-build workflow |
+| [scripts/foundry/PROMPTS.md](scripts/foundry/PROMPTS.md) | LLM prompt templates for invoking each Foundry agent |

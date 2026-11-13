@@ -1,0 +1,105 @@
+name: CI — Test & Compliance Gate
+
+on:
+  push:
+    branches: [main, production-infrastructure, staging]
+  pull_request:
+    branches: [main, production-infrastructure]
+
+jobs:
+  # ── Python compliance & unit tests ─────────────────────────────────────────
+  python-tests:
+    name: Python Tests + Governance Sweep
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r compliance_agents/requirements.txt
+          pip install pytest pytest-asyncio httpx
+
+      - name: Run unit tests
+        run: pytest tests/unit/ -v --tb=short
+
+      - name: Run security tests
+        run: pytest tests/security/ -v --tb=short
+
+      - name: Verify audit chain integrity
+        run: |
+          python3 -c "
+          import sys; sys.path.insert(0, '.')
+          from compliance_agents.audit_trail.agent import AuditTrailAgent
+          r = AuditTrailAgent().verify_chain_integrity()
+          print(f'Chain OK: {r[\"integrity_ok\"]} | Verified: {r[\"verified_entries\"]} | Quarantined: {r[\"quarantined_entries\"]}')
+          assert r['integrity_ok'], 'AUDIT CHAIN BROKEN — blocking merge'
+          print('✅ Audit chain integrity verified')
+          "
+
+      - name: Run governance sweep (must pass ≥14/16)
+        run: |
+          python3 -c "
+          import sys; sys.path.insert(0, '.')
+          from compliance_agents.governance.engine import GovernanceEngine
+          result = GovernanceEngine().run_full_sweep(period_hours=24)
+          total = sum(len(fw.controls) for fw in result.frameworks)
+          satisfied = sum(1 for fw in result.frameworks for c in fw.controls if c['status'] == 'satisfied')
+          print(f'Controls satisfied: {satisfied}/{total}')
+          assert satisfied >= 14, f'GOVERNANCE GATE FAILED: only {satisfied}/16 controls satisfied'
+          print('✅ Governance sweep passed')
+          "
+
+  # ── Next.js build + TypeScript check ────────────────────────────────────────
+  nextjs-build:
+    name: Next.js Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/gem-atr-digital-easyway
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: apps/gem-atr-digital-easyway/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+        env:
+          APP_MODE: mock
+          NEXT_PUBLIC_MOCK_MODE: 'false'
+          DATABASE_URL: ./gem-atr.db
+
+  # ── Docker build validation ──────────────────────────────────────────────────
+  docker-build:
+    name: Docker Image Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build compliance_agents image
+        run: docker build -t gem-compliance-agents:ci ./compliance_agents
+
+      - name: Build card_platform_service image
+        run: docker build -t gem-card-platform:ci ./card_platform_service
+
+      - name: Build converter_service image
+        run: docker build -t gem-converter:ci ./converter_service

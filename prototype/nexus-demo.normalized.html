@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nexus Demo - Alliance Trust Realty</title>
+  <style>
+    :root {
+      --primary: #1a73e8;
+      --bg: #f8f9fa;
+      --card-bg: #ffffff;
+      --text: #202124;
+      --muted: #5f6368;
+      --border: #dadce0;
+      --success: #0d904f;
+      --danger: #d93025;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    header {
+      background: var(--primary);
+      color: #fff;
+      padding: 1rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header h1 { font-size: 1.25rem; font-weight: 600; }
+    header span { font-size: 0.85rem; opacity: 0.85; }
+    .container { max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .card h2 { font-size: 1.1rem; margin-bottom: 0.75rem; }
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+    }
+    .status-item { text-align: center; padding: 1rem; }
+    .status-item .label { font-size: 0.8rem; color: var(--muted); text-transform: uppercase; }
+    .status-item .value { font-size: 1.5rem; font-weight: 700; margin-top: 0.25rem; }
+    .badge {
+      display: inline-block;
+      padding: 0.2em 0.6em;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .badge-ok { background: #e6f4ea; color: var(--success); }
+    .badge-warn { background: #fef7e0; color: #e37400; }
+    .badge-err { background: #fce8e6; color: var(--danger); }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--border); }
+    th { font-size: 0.8rem; color: var(--muted); text-transform: uppercase; }
+    button {
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      padding: 0.5rem 1.25rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    button:hover { opacity: 0.9; }
+    #log { font-family: monospace; font-size: 0.8rem; background: #263238; color: #c3e88d; padding: 1rem; border-radius: 6px; max-height: 200px; overflow-y: auto; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Nexus Platform Demo</h1>
+    <span>Alliance Trust Realty &mdash; Crypto Debit Card Platform</span>
+  </header>
+
+  <div class="container">
+    <!-- System Status -->
+    <div class="card">
+      <h2>System Status</h2>
+      <div class="status-grid">
+        <div class="status-item">
+          <div class="label">Card Service</div>
+          <div class="value"><span class="badge badge-ok">Healthy</span></div>
+        </div>
+        <div class="status-item">
+          <div class="label">Converter Service</div>
+          <div class="value"><span class="badge badge-ok">Healthy</span></div>
+        </div>
+        <div class="status-item">
+          <div class="label">Compliance Agent</div>
+          <div class="value"><span class="badge badge-ok">Active</span></div>
+        </div>
+        <div class="status-item">
+          <div class="label">Security Agent</div>
+          <div class="value"><span class="badge badge-ok">Active</span></div>
+        </div>
+        <div class="status-item">
+          <div class="label">Ledger Agent</div>
+          <div class="value"><span class="badge badge-warn">Syncing</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="card">
+      <h2>Quick Actions</h2>
+      <p style="margin-bottom:1rem; color: var(--muted); font-size:0.9rem;">
+        Simulate platform operations against the Nexus locked-build workflow.
+      </p>
+      <button onclick="simulateIssueCard()">Issue Card</button>
+      <button onclick="simulateLoadFunds()">Load Funds</button>
+      <button onclick="simulateComplianceCheck()">Run Compliance Check</button>
+    </div>
+
+    <!-- Recent Transactions -->
+    <div class="card">
+      <h2>Recent Transactions</h2>
+      <table>
+        <thead>
+          <tr><th>Trace ID</th><th>Type</th><th>Amount</th><th>Status</th><th>Time</th></tr>
+        </thead>
+        <tbody id="txn-table">
+          <tr>
+            <td><code>txn-a1b2c3</code></td>
+            <td>Card Issue</td>
+            <td>&mdash;</td>
+            <td><span class="badge badge-ok">Completed</span></td>
+            <td>2 min ago</td>
+          </tr>
+          <tr>
+            <td><code>txn-d4e5f6</code></td>
+            <td>Fund Load</td>
+            <td>$500 &rarr; 0.0082 BTC</td>
+            <td><span class="badge badge-ok">Settled</span></td>
+            <td>5 min ago</td>
+          </tr>
+          <tr>
+            <td><code>txn-g7h8i9</code></td>
+            <td>Webhook</td>
+            <td>$1,200 fiat received</td>
+            <td><span class="badge badge-warn">Processing</span></td>
+            <td>8 min ago</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Event Log -->
+    <div class="card">
+      <h2>Event Log</h2>
+      <div id="log">[nexus] demo ready - all agents initialized</div>
+    </div>
+  </div>
+
+  <script>
+    const log = document.getElementById('log');
+    function appendLog(msg) {
+      const ts = new Date().toISOString().slice(11, 19);
+      log.textContent += '\n[' + ts + '] ' + msg;
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function addTxnRow(traceId, type, amount, status) {
+      const tbody = document.getElementById('txn-table');
+      const badgeClass = status === 'Completed' ? 'badge-ok' : status === 'Processing' ? 'badge-warn' : 'badge-ok';
+      const row = document.createElement('tr');
+      row.innerHTML =
+        '<td><code>' + traceId + '</code></td>' +
+        '<td>' + type + '</td>' +
+        '<td>' + amount + '</td>' +
+        '<td><span class="badge ' + badgeClass + '">' + status + '</span></td>' +
+        '<td>just now</td>';
+      tbody.insertBefore(row, tbody.firstChild);
+    }
+
+    function randomId() { return 'txn-' + Math.random().toString(36).slice(2, 8); }
+
+    function simulateIssueCard() {
+      const id = randomId();
+      appendLog('[card-service] POST /api/v1/cards/issue user_id=demo_user');
+      appendLog('[compliance-agent] KYC tier check: tier=3 - APPROVED');
+      appendLog('[card-service] Card issued -> card_id=' + id);
+      addTxnRow(id, 'Card Issue', '-', 'Completed');
+    }
+
+    function simulateLoadFunds() {
+      const id = randomId();
+      const usd = (Math.random() * 2000 + 100).toFixed(2);
+      const btc = (usd / 61000).toFixed(6);
+      appendLog('[card-service] POST /api/v1/funds/load fiat_amount=$' + usd);
+      appendLog('[converter-service] /internal/transfer_funds trace_id=' + id);
+      appendLog('[ledger-agent] Recording fiat->BTC conversion: $' + usd + ' -> ' + btc + ' BTC');
+      appendLog('[converter-service] Conversion settled');
+      addTxnRow(id, 'Fund Load', '$' + usd + ' -> ' + btc + ' BTC', 'Completed');
+    }
+
+    function simulateComplianceCheck() {
+      appendLog('[compliance-agent] Running full compliance sweep...');
+      appendLog('[security-agent] HMAC validation: all webhook signatures valid');
+      appendLog('[compliance-agent] AML/KYC checks passed for all active users');
+      appendLog('[compliance-agent] Sweep complete - no issues found');
+    }
+  </script>
+</body>
+</html>
