@@ -10,6 +10,12 @@ fintech-microservices-core/
 ├── apps/                        # Application modules
 ├── card_platform_service/       # Card management API (FastAPI)
 ├── converter_service/           # Fiat-to-Bitcoin converter (FastAPI)
+├── striga-auto-btc/             # Striga Fiat-to-BTC automation (Node.js/Express)
+│   ├── config/env.js            # Environment validation
+│   ├── services/strigaClient.js # HMAC-SHA256 signing client
+│   ├── routes/                  # Onboarding, automation, webhook routes
+│   ├── database/                # PostgreSQL ledger + SQL migration
+│   └── test/                    # HMAC signing tests
 ├── validation/                  # Shared validation utilities
 ├── nexus-banking-fullstack/     # Nexus Bitcoin Banking Platform (Next.js)
 ├── prototype/                   # Interactive UI prototypes
@@ -60,6 +66,36 @@ The `nexus-banking-fullstack/` directory contains a production-grade Bitcoin ban
 - **Mock mode** for local development without external dependencies
 
 See `nexus-banking-fullstack/README.md` for setup and deployment instructions.
+
+## Striga Auto-BTC Backend
+
+The `striga-auto-btc/` directory implements automated Fiat-to-Bitcoin conversion and on-chain settlement via the Striga v1 API:
+
+- **HMAC-SHA256 Authentication** for all outbound Striga API requests (timestamp + method + endpoint + MD5 body digest)
+- **User Onboarding** with multi-currency wallet provisioning (USD/EUR/BRL/MXN + BTC) and virtual banking enrichment (vIBAN / US ACH)
+- **Standing Orders** for automated conversion (`SWAP_AND_WITHDRAW` with on-chain sweep, or `SWAP_ONLY` to hold BTC in wallet) with SCA OTP challenge verification
+- **Webhook Ingestion** with raw-body signature verification (`X-Striga-Signature`), idempotent event processing, and database ledger logging
+- **PostgreSQL Ledger** with replay-attack prevention and user-to-Striga mapping tables
+
+### API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/onboarding/user` | Create Striga user profile |
+| POST | `/api/onboarding/provision-accounts` | Create wallet + enrich accounts |
+| POST | `/api/automation/standing-order` | Create auto-conversion rule |
+| POST | `/api/automation/standing-order/confirm` | Confirm via SCA OTP |
+| POST | `/webhooks/striga/ping` | Dashboard test ping |
+| POST | `/webhooks/striga/tx` | Transaction event listener |
+
+### Quick Start
+
+```bash
+cd striga-auto-btc
+cp .env.example .env  # Configure your Striga API credentials
+npm install
+npm start             # Runs on port 3000
+```
 
 ## Foundry Agent System
 
